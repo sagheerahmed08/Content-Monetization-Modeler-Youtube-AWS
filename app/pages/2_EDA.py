@@ -9,16 +9,21 @@ from scipy.stats import skew, kurtosis
 # Streamlit Config
 st.set_page_config(page_title="📊 EDA | YouTube Ad Revenue Predictor", page_icon="📊", layout="wide")
 st.title("📊 Exploratory Data Analysis")
+# Load AWS credentials from secrets
+aws_credentials = {
+    "key": st.secrets["aws"]["aws_access_key_id"],
+    "secret": st.secrets["aws"]["aws_secret_access_key"],
+    "client_kwargs": {"region_name": st.secrets["aws"]["region"]},
+}
 
-# 🔹 Your S3 Bucket and File Paths
 S3_BUCKET = "youtube-ad-revenue-app-sagheer"
 RAW_KEY = "Data/Raw/youtube_ad_revenue_dataset.csv"
 CLEAN_KEY = "Data/Cleaned/youtube_ad_revenue_dataset_cleaned.csv"
 
 @st.cache_data
 def load_data_from_s3():
-    raw = pd.read_csv(f"s3://{S3_BUCKET}/{RAW_KEY}")
-    clean = pd.read_csv(f"s3://{S3_BUCKET}/{CLEAN_KEY}")
+    raw = pd.read_csv(f"s3://{S3_BUCKET}/{RAW_KEY}", storage_options=aws_credentials)
+    clean = pd.read_csv(f"s3://{S3_BUCKET}/{CLEAN_KEY}", storage_options=aws_credentials)
     return raw, clean
 
 raw_df, clean_df = load_data_from_s3()
