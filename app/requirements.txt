@@ -15,11 +15,12 @@ plotly==6.3.1
 streamlit==1.47.1
 
 # AWS
-boto3==1.40.55
-aiobotocore==2.25.0
 aiohttp==3.13.1
 aioitertools==0.12.0
 aiosignal==1.4.0
+boto3
+aiobotocore
+botocore
 
 # Utilities
 requests==2.32.4
