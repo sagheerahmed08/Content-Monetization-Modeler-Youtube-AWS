@@ -223,9 +223,12 @@ with tab2:
             obj = s3.get_object(Bucket=S3_BUCKET, Key=f"{MODEL_PREFIX}/results.csv")
             df_results = pd.read_csv(io.BytesIO(obj['Body'].read()))
             st.dataframe(df_results)
-            fig = px.bar(df_results, x="Model", y="CV_R2_Mean", error_y="CV_R2_STD", title="Model CV R² Comparison", color="Model", text="CV_R2_Mean")
+            fig = px.bar(
+                df_results, x="Model", y="CV_R2_Mean", error_y="CV_R2_STD",
+                title="Model CV R² Comparison", color="Model", text="CV_R2_Mean"
+            )
             st.plotly_chart(fig, use_container_width=True)
-        except:
+        except Exception:
             st.warning("No model results available.")
 
         # Evaluate all models
@@ -251,15 +254,8 @@ with tab2:
                     st.warning(f"{model_name} could not be loaded.")
                     continue
 
-                # Apply preprocessing to X before evaluation
-                X_processed = preprocessor.fit_transform(X)
-
-                if is_xgb:
-                    # Convert preprocessed data to DMatrix for XGBoost
-                    dmatrix = _xgb.DMatrix(X_processed)
-                    y_pred = model.predict(dmatrix)
-                else:
-                    y_pred = model.predict(X_processed)
+                # Predict directly — no preprocessing here, since pipeline already includes it
+                y_pred = model.predict(X)
 
                 metrics = eval_metrics(y, y_pred)
 
@@ -284,3 +280,4 @@ with tab2:
 
             except Exception as e:
                 st.warning(f"⚠️ Could not evaluate {model_name}: {e}")
+
