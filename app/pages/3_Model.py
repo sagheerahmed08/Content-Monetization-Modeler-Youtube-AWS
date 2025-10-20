@@ -1,16 +1,16 @@
 import streamlit as st
 import pandas as pd
+import numpy as np
 import joblib
 import matplotlib.pyplot as plt
 import seaborn as sns
-import numpy as np
-import pathlib
-from sklearn.metrics import r2_score, mean_absolute_error, mean_squared_error, confusion_matrix
 import plotly.express as px
-import pathlib
-import numpy as np
-import joblib
 import time
+import io
+from pathlib import Path
+import boto3
+import importlib
+
 from sklearn.model_selection import train_test_split, cross_val_score
 from sklearn.preprocessing import StandardScaler, OneHotEncoder
 from sklearn.pipeline import Pipeline
@@ -18,68 +18,134 @@ from sklearn.compose import ColumnTransformer
 from sklearn.impute import SimpleImputer
 from sklearn.linear_model import LinearRegression, Ridge, Lasso
 from sklearn.ensemble import RandomForestRegressor
-from sklearn.metrics import r2_score, mean_squared_error, mean_absolute_error
-# Optional: XGBoost - import dynamically so the module isn't required at static-analysis time
-import importlib
+from sklearn.metrics import r2_score, mean_absolute_error, mean_squared_error
+
+# Optional XGBoost
 try:
     _xgb = importlib.import_module("xgboost")
     XGBRegressor = getattr(_xgb, "XGBRegressor")
     has_xgb = True
 except Exception:
-    # xgboost not installed or failed to import; downstream code will skip XGBoost model
     has_xgb = False
-    
-    
-st.set_page_config(page_title="Model Visualization | YouTube Ad Revenue Predictor", page_icon="📊",layout="wide")
-st.title("📊 Model")
 
-tab1, tab2 = st.tabs(["Model Train", "Model Visualization"])
+# Streamlit Page Config
+st.set_page_config(page_title="YouTube Ad Revenue Predictor", page_icon="📊", layout="wide")
+st.title("📊 YouTube Ad Revenue Predictor")
+
+# ----------------------------
+# S3 Config
+# ----------------------------
+S3_BUCKET = "youtube-ad-revenue-app-sagheer"
+CLEAN_KEY = "Data/Cleaned/youtube_ad_revenue_dataset_cleaned.csv"
+MODEL_PREFIX = "models"
+
+s3 = boto3.client("s3", region_name="eu-north-1")
+
+# ----------------------------
+# Utility Functions
+# ----------------------------
+@st.cache_data
+def load_csv_from_s3(bucket, key):
+    """Load CSV file from S3 bucket"""
+    obj = s3.get_object(Bucket=bucket, Key=key)
+    return pd.read_csv(io.BytesIO(obj['Body'].read()))
+
+def upload_model_to_s3(model, bucket, key):
+    """Upload trained model to S3"""
+    buffer = io.BytesIO()
+    joblib.dump(model, buffer)
+    buffer.seek(0)
+    s3.upload_fileobj(buffer, bucket, key)
+
+def load_model_from_s3(bucket, key):
+    """Load model from S3"""
+    obj = s3.get_object(Bucket=bucket, Key=key)
+    return joblib.load(io.BytesIO(obj['Body'].read()))
+
+def eval_metrics(y_true, y_pred):
+    return {
+        'r2': r2_score(y_true, y_pred),
+        'rmse': np.sqrt(mean_squared_error(y_true, y_pred)),
+        'mae': mean_absolute_error(y_true, y_pred)
+    }
+
+# ----------------------------
+# Tabs
+# ----------------------------
+tab1, tab2 = st.tabs(["Model Training", "Model Visualization"])
+
+# ============================
+# TAB 1: MODEL TRAINING
+# ============================
 with tab1:
-    BASE_DIR = pathlib.Path(__file__).resolve().parent.parent  # Project root
-    DATA_FILE = BASE_DIR / "Data" / "Cleaned" / "youtube_ad_revenue_dataset_cleaned.csv"
-    MODEL_DIR = BASE_DIR / "models"
-    MODEL_DIR.mkdir(exist_ok=True)
-    df = pd.read_csv(DATA_FILE)
-    print(f"Cleaned data loaded: {df.shape}")
+    st.subheader("📥 Load Dataset")
+    try:
+        df = load_csv_from_s3(S3_BUCKET, CLEAN_KEY)
+        st.success(f"✅ Dataset loaded from S3: {df.shape}")
+    except Exception as e:
+        st.error(f"❌ Failed to load dataset from S3: {e}")
+        df = None
 
-    # ----------------------------
-    # Features and target
-    # ----------------------------
-    num_features = [
-        'views', 'likes', 'comments', 'watch_time_minutes', 'video_length_minutes',
-        'subscribers', 'engagement_rate', 'avg_watch_time_per_view'
-    ]
-    cat_features = ['category', 'device', 'country']
+    if df is not None:
+        # Feature Engineering
+        num_features = [
+            'views', 'comments','video_length_minutes',
+            'subscribers', 'engagement_rate', 'avg_watch_time_per_view'
+        ]
+        cat_features = ['category', 'device', 'country']
 
-    # Derived features
-    df['engagement_rate'] = (df['likes'] + df['comments']) / df['views'].replace(0, 1)
-    df['avg_watch_time_per_view'] = df['watch_time_minutes'] / df['views'].replace(0, 1)
+        df['engagement_rate'] = (df['likes'] + df['comments']) / df['views'].replace(0, 1)
+        df['avg_watch_time_per_view'] = df['watch_time_minutes'] / df['views'].replace(0, 1)
 
-    X = df[num_features + cat_features]
-    y = df['ad_revenue_usd'].fillna(0)
+        X = df[num_features + cat_features]
+        y = df['ad_revenue_usd'].fillna(0)
 
-    # Train/test split
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
-    st.subheader("Train Your Models")
+        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
-    
-    if MODEL_DIR.exists() and any(MODEL_DIR.glob("*.joblib")):
-        st.success(f"Model files already exist in {MODEL_DIR}. Training again will overwrite existing models.")
-        for existing_model in MODEL_DIR.glob("*.joblib"):
-            st.success(f"Existing model: {existing_model.name}")
-        delete_button = st.button("🗑️ Delete Existing Models")
-        if delete_button:
-            for existing_model in MODEL_DIR.glob("*.joblib"):
-                existing_model.unlink()
-            st.success("Existing models deleted. You can now train new models.")
-            train_button = st.button("🚀 Train Models")
-    else:
-        train_button = st.button("🚀 Train Models")
-        if train_button:
-            with st.spinner("Training models... ⏳ Please wait"):
-                time.sleep(1)  # just to simulate loading
-                
-                # Preprocessing pipelines
+        # ----------------------------
+        # Train Model Button + Loader
+        # ----------------------------
+        st.subheader("🚀 Train Model")
+
+        response = s3.list_objects_v2(Bucket=S3_BUCKET, Prefix=MODEL_PREFIX)
+        existing_keys = [item['Key'] for item in response.get('Contents', [])]
+
+        model_files = [
+            f"{MODEL_PREFIX}/RandomForest.joblib",
+            f"{MODEL_PREFIX}/Ridge.joblib",
+            f"{MODEL_PREFIX}/Lasso.joblib",
+            f"{MODEL_PREFIX}/LinearRegression.joblib",
+            f"{MODEL_PREFIX}/XGBoost.joblib",
+            f"{MODEL_PREFIX}/BestModel.joblib"
+        ]
+
+        for model_path in model_files:
+            if model_path in existing_keys:
+                st.info(f"{model_path} already trained and uploaded to S3.")
+            else:
+                st.warning(f"{model_path} not found in S3.")
+        #Get result.csv from s3 bucket
+        try:
+            obj = s3.get_object(Bucket=S3_BUCKET, Key=f"{MODEL_PREFIX}/results.csv")
+            df_results = pd.read_csv(io.BytesIO(obj['Body'].read()))
+            st.success("✅ Model results found in S3.")
+            st.header("📊 Existing Model Results")
+            subtab1, subtab2 = st.tabs(["Tab 1", "Tab 2"])
+            with subtab1:
+                st.dataframe(df_results)
+            with subtab2:
+                try:
+                    fig = px.bar(df_results, x="Model", y="CV_R2_Mean", error_y="CV_R2_STD", title="Model CV R² Comparison", color="Model", text="CV_R2_Mean")
+                    st.plotly_chart(fig, use_container_width=True)
+                except Exception:
+                    st.bar_chart(data=df_results, x="Model", y="CV_R2_Mean")
+        except Exception as e:
+            st.error(f"❌ Failed to load model results from S3: {e}")
+
+        if st.button("🧠 Train Model"):
+            with st.spinner("Training models... ⏳ Please wait..."):
+                time.sleep(1)
+
                 num_pipeline = Pipeline([
                     ('imputer', SimpleImputer(strategy='median')),
                     ('scaler', StandardScaler())
@@ -88,251 +154,161 @@ with tab1:
                     ('imputer', SimpleImputer(strategy='constant', fill_value='missing')),
                     ('onehot', OneHotEncoder(handle_unknown='ignore'))
                 ])
-
                 preprocessor = ColumnTransformer([
                     ('num', num_pipeline, num_features),
                     ('cat', cat_pipeline, cat_features)
                 ])
 
-                # Models for comparison
+                # Define models
                 models = {
                     'LinearRegression': LinearRegression(),
-                    'Ridge': Ridge(random_state=42),
-                    'Lasso': Lasso(random_state=42),
-                    'RandomForest': RandomForestRegressor(
-                        n_estimators=200, random_state=42, n_jobs=-1
-                    )
+                    'Ridge': Ridge(random_state=42, alpha=1.0),
+                    'Lasso': Lasso(random_state=42, alpha=1.0),
+                    'RandomForest': RandomForestRegressor(n_estimators=100, random_state=42, n_jobs=-1, max_depth=10)
                 }
-
                 if has_xgb:
                     models['XGBoost'] = XGBRegressor(
-                        n_estimators=200, random_state=42, n_jobs=1, objective='reg:squarederror'
+                        n_estimators=100,
+                        random_state=42,
+                        n_jobs=1,
+                        objective='reg:squarederror',
+                        learning_rate=0.1,
+                        max_depth=6
                     )
 
-                # Train, cross-validate, save models
                 results = {}
-
+                
+                # Train & Save each model
                 for name, model in models.items():
-                    pipe = Pipeline([
-                        ('preprocessor', preprocessor),
-                        ('model', model)
-                    ])
+                    st.write(f"🔹 Training {name}...")
+                    pipe = Pipeline([('preprocessor', preprocessor), ('model', model)])
                     pipe.fit(X_train, y_train)
-                    joblib.dump(pipe, MODEL_DIR / f"{name}.joblib")
-                    st.success(f"Saved {name} model at {MODEL_DIR / f'{name}.joblib'}")
-                    
+
+                    # Save to S3
+                    upload_model_to_s3(pipe, S3_BUCKET, f"{MODEL_PREFIX}/{name}.joblib")
+                    st.success(f"{name}.joblib uploaded to S3")
+
+                    # Cross-validation
                     scores = cross_val_score(pipe, X_train, y_train, scoring='r2', cv=5, n_jobs=-1)
                     results[name] = {'cv_r2_mean': np.mean(scores), 'cv_r2_std': np.std(scores)}
-                    st.success(f"{name}: CV R² = {np.mean(scores):.4f} ± {np.std(scores):.4f}")
+                    st.write(f"{name}: CV R² = {np.mean(scores):.4f} ± {np.std(scores):.4f}")
 
-                # Save comparison results to CSV for Streamlit app
+                #best model based on CV R2
+                best_model = max(results, key=lambda k: results[k]['cv_r2_mean'])
+                st.success(f"🏆 Best Model: {best_model} with CV R² = {results[best_model]['cv_r2_mean']:.4f}")
+                # Load best model and save as 'BestModel.joblib'
+                best_model = load_model_from_s3(S3_BUCKET, f"{MODEL_PREFIX}/{best_model}.joblib")
+                upload_model_to_s3(best_model, S3_BUCKET, f"{MODEL_PREFIX}/BestModel.joblib")
+                st.success("BestModel.joblib uploaded to S3")
+                # Upload performance results
                 perf_df = pd.DataFrame([
                     {"Model": k, "CV_R2_Mean": v['cv_r2_mean'], "CV_R2_STD": v['cv_r2_std']}
                     for k, v in results.items()
                 ])
-                perf_df.to_csv(MODEL_DIR / "results.csv", index=False)
-                st.success(f"Model comparison results saved at {MODEL_DIR / 'results.csv'}")
-                st.success("Model Training Completed!")
-                st.write("### Model Performance Summary")
-                st.dataframe(perf_df, use_container_width=True, hide_index=True)
-                best_model_name = perf_df.iloc[0]["Model"]
-                best_r2 = perf_df.iloc[0]["CV_R2_Mean"]
-                st.metric(label="Best Model", value=best_model_name, delta=f"{best_r2:.3f} R²")
-                # ----------------------------
-                # Fit best model
-                # ----------------------------
-                best_name = max(results, key=lambda k: results[k]['cv_r2_mean'])
-                best_model = models[best_name]
-                pipe_best = Pipeline([('preprocessor', preprocessor), ('model', best_model)])
-                pipe_best.fit(X_train, y_train)
-                st.bar_chart(perf_df.set_index("Model")["CV_R2_Mean"])
-                # ----------------------------
-                # Evaluate on test set
-                # ----------------------------
-                y_pred = pipe_best.predict(X_test)
+                csv_buffer = io.StringIO()
+                perf_df.to_csv(csv_buffer, index=False)
+                s3.put_object(Bucket=S3_BUCKET, Key=f"{MODEL_PREFIX}/results.csv", Body=csv_buffer.getvalue())
 
-                def eval_metrics(y_true, y_pred):
-                    return {
-                        'r2': r2_score(y_true, y_pred),
-                        'rmse': np.sqrt(mean_squared_error(y_true, y_pred)),
-                        'mae': mean_absolute_error(y_true, y_pred)
-                    }
+                st.success("🎉 Model training completed successfully!")
+                st.dataframe(perf_df)
 
-                metrics = eval_metrics(y_test, y_pred)
-                st.success(f"Best model: {best_name}")
-                st.success(f"Test set performance: {metrics}")
-                # Save best model
-                joblib.dump(pipe_best, MODEL_DIR / "best_model.joblib")
-                st.success(f"Best model saved at {MODEL_DIR / 'best_model.joblib'}")
-            
-                # Feature importance for tree models
-                tree_models = ['RandomForest', 'XGBoost']
-                if best_name in tree_models:
-                    model_step = pipe_best.named_steps['model']
-                    ohe = pipe_best.named_steps['preprocessor'].named_transformers_['cat'].named_steps['onehot']
-                    cat_names = ohe.get_feature_names_out(cat_features)
-                    feature_names = num_features + list(cat_names)
-                    
-                    importances = model_step.feature_importances_
-                    fi = pd.Series(importances, index=feature_names).sort_values(ascending=False)
-                    
-                    st.write("🌟 Top 20 Feature Importances:")
-                    st.bar_chart(fi.head(20))
-                    plt.figure(figsize=(10, 6))
-                    fi.head(20).plot.barh()
-                    plt.title("Top 20 Feature Importances")
-                    plt.tight_layout()
-                    st.pyplot(plt, use_container_width=True)
-
+# ============================
+# TAB 2: MODEL VISUALIZATION
+# ============================
 with tab2:
-    BASE_DIR = pathlib.Path(__file__).resolve().parent.parent.parent
-    MODEL_DIR = BASE_DIR / "app" / "models"
-    DATA_FILE = BASE_DIR / "app" / "Data" / "Cleaned" / "youtube_ad_revenue_dataset_cleaned.csv"
+    st.subheader("📈 Model Visualization & Evaluation")
 
+    try:
+        df = load_csv_from_s3(S3_BUCKET, CLEAN_KEY)
+        st.success(f"✅ Dataset loaded from S3: {df.shape}")
+    except Exception as e:
+        st.error(f"❌ Failed to load dataset from S3: {e}")
+        df = None
 
-    # Load results
-    results_file = MODEL_DIR / "results.csv"
-    if results_file.exists():
-        df_results = pd.read_csv(results_file)
-        st.subheader("📈 Model Comparison (Cross-Validation R²)")
-        st.dataframe(df_results)
-        fig = px.bar(df_results, x="Model", y="CV_R2_Mean", error_y="CV_R2_STD",
-                    title="Cross-Validation R² Comparison", text="CV_R2_Mean")
-        st.plotly_chart(fig, use_container_width=True)
-    else:
-        st.warning("Model results file not found.")
+    if df is not None:
+        X = df.drop(columns=["ad_revenue_usd", "watch_time_minutes", "likes"])
+        y = df["ad_revenue_usd"]
 
-    # Load best model
-    best_model_path = MODEL_DIR / "best_model.joblib"
-    if best_model_path.exists():
-        st.subheader("Best Model Evaluation")
-        df = pd.read_csv(DATA_FILE)
-        model = joblib.load(best_model_path)
-
-        X = df.drop(columns=['ad_revenue_usd'])
         y = df['ad_revenue_usd']
-        y_pred = model.predict(X)
 
-        r2 = r2_score(y, y_pred)
-        mae = mean_absolute_error(y, y_pred)
-        rmse = np.sqrt(mean_squared_error(y, y_pred))
+        # Load results
+        try:
+            obj = s3.get_object(Bucket=S3_BUCKET, Key=f"{MODEL_PREFIX}/results.csv")
+            df_results = pd.read_csv(io.BytesIO(obj['Body'].read()))
+            st.subheader("Model Comparison (CV R²)")
+            st.dataframe(df_results)
 
-        col1, col2, col3 = st.columns(3)
-
-        col1.metric("R² Score", f"{r2:.3f}")
-        col2.metric("MAE", f"{mae:.2f}")
-        col3.metric("RMSE", f"{rmse:.2f}")
-
-        # Scatter plot
-        fig2, ax2 = plt.subplots()
-        sns.scatterplot(x=y, y=y_pred, alpha=0.6, ax=ax2)
-        ax2.set_xlabel("Actual Revenue")
-        ax2.set_ylabel("Predicted Revenue")
-        #draw line visually representing y=x
-        lims = [min(y.min(), y_pred.min()), max(y.max(), y_pred.max())]
-        ax2.plot(lims, lims, 'r-')
-        ax2.set_title("Actual vs Predicted Revenue")
-        st.pyplot(fig2)
-    else:
-        st.warning("Best model not found.")
-
-    best_model_path = MODEL_DIR / "best_model.joblib"
-    linear_model_path = MODEL_DIR / "linearRegression.joblib"
-    lasso_model_path = MODEL_DIR / "Lasso.joblib"
-    ridge_model_path = MODEL_DIR / "Ridge.joblib"
-    random_forest_model_path = MODEL_DIR / "RandomForest.joblib"
-    xgboost_model_path = MODEL_DIR / "XGBoost.joblib"
-
-    model_paths = {
-        "Best Model": best_model_path,
-        "Linear Regression": linear_model_path,
-        "Lasso": lasso_model_path,
-        "Ridge": ridge_model_path,
-        "Random Forest": random_forest_model_path,
-        "XGBoost": xgboost_model_path
-    }
-
-    # Load dataset
-    df = pd.read_csv(DATA_FILE)
-    X = df.drop(columns=["ad_revenue_usd"])
-    y = df["ad_revenue_usd"]
-
-    # Feature lists (same as used in training) - safe defaults in case train wasn't run here
-    num_features = [
-        'views', 'likes', 'comments', 'watch_time_minutes', 'video_length_minutes',
-        'subscribers', 'engagement_rate', 'avg_watch_time_per_view'
-    ]
-    cat_features = ['category', 'device', 'country']
-
-    col1, col2 = st.columns(2)  # two columns for displaying models side-by-side
-cols = [col1, col2]
-
-for i, (model_name, model_path) in enumerate(model_paths.items()):
-    with cols[i % 2]:  # alternate between columns for grid effect
-        if model_path.exists():
-            st.subheader(f"🔍 {model_name} Evaluation")
-
-            # Load model
-            model = joblib.load(model_path)
-
-            # Predict
+            import plotly.express as px
+            fig = px.bar(df_results, x="Model", y="CV_R2_Mean", error_y="CV_R2_STD",
+                         title="Model CV R² Comparison", color="Model")
+            st.plotly_chart(fig, use_container_width=True)
+        except Exception:
+            st.warning("Model results not found in S3.")
+        try:
+            model = load_model_from_s3(S3_BUCKET, f"{MODEL_PREFIX}/BestModel.joblib")
             y_pred = model.predict(X)
-
-            # Metrics
-            r2 = r2_score(y, y_pred)
-            mae = mean_absolute_error(y, y_pred)
-            rmse = np.sqrt(mean_squared_error(y, y_pred))
-
-            m1, m2, m3 = st.columns(3)
-            m1.metric("R² Score", f"{r2:.3f}")
-            m2.metric("MAE", f"{mae:.2f}")
-            m3.metric("RMSE", f"{rmse:.2f}")
-
-            # Scatter Plot
-            fig, ax = plt.subplots(figsize=(6, 4))
-            sns.scatterplot(x=y, y=y_pred, alpha=0.6, ax=ax, color="teal")
-            ax.set_xlabel("Actual Revenue")
-            ax.set_ylabel("Predicted Revenue")
+            metrics = eval_metrics(y, y_pred)
+            st.subheader("🏆  Evaluation Metrics")
+            st.success(f"### Model: {'BestModel'}")
+            col1, col2, col3 = st.columns(3)
+            col1.metric("R² Score", f"{metrics['r2']:.3f}")
+            col2.metric("MAE", f"{metrics['mae']:.2f}")
+            col3.metric("RMSE", f"{metrics['rmse']:.2f}")
+            fig2, ax2 = plt.subplots()
+            sns.scatterplot(x=y, y=y_pred, alpha=0.6, ax=ax2)
             lims = [min(y.min(), y_pred.min()), max(y.max(), y_pred.max())]
-            ax.plot(lims, lims, 'r--')
-            ax.set_title(f"Actual vs Predicted - {model_name}")
-            st.pyplot(fig, use_container_width=True)
+            ax2.plot(lims, lims, 'r--')
+            ax2.set_xlabel("Actual Revenue")
+            ax2.set_ylabel("Predicted Revenue")
+            ax2.set_title("Actual vs Predicted Revenue")
+            st.pyplot(fig2)
 
-            # Feature Importance (for tree-based models)
-            if model_name in ["Random Forest", "XGBoost"]:
-                st.write("**Top 20 Feature Importances**")
+        except Exception as e:
+            st.warning(f"Could not load best model: {e}")
+        
+        # Load Best Model
+        model_files = [
+        "BestModel.joblib",
+        "LinearRegression.joblib",
+        "Lasso.joblib",
+        "Ridge.joblib",
+        "RandomForest.joblib",
+        "XGBoost.joblib"
+    ]
 
-                # Handle pipeline and preprocessing
-                if hasattr(model, "named_steps"):
-                    model_step = model.named_steps.get("model", model)
-                    preproc = model.named_steps.get("preprocessor", None)
-                else:
-                    model_step = model
-                    preproc = None
+    try:
+        st.subheader("Model Evaluation Summary")
 
-                # Build feature names
-                if preproc is not None:
-                    try:
-                        ohe = preproc.named_transformers_["cat"].named_steps["onehot"]
-                        cat_names = ohe.get_feature_names_out(cat_features)
-                        feature_names = num_features + list(cat_names)
-                    except Exception:
-                        feature_names = X.columns
-                else:
-                    feature_names = X.columns
+        # Create 2 columns per row → for better layout
+        cols = st.columns(2)
 
-                # Plot feature importances
-                if hasattr(model_step, "feature_importances_"):
-                    importances = model_step.feature_importances_
-                    fi = pd.Series(importances, index=feature_names).sort_values(ascending=False)
+        for idx, model_path in enumerate(model_files):
+            model = load_model_from_s3(S3_BUCKET, f"{MODEL_PREFIX}/{model_path}")
+            y_pred = model.predict(X)
+            metrics = eval_metrics(y, y_pred)
+            model_name = model_path.replace(".joblib", "")
 
-                    st.bar_chart(fi.head(20))
-                    plt.figure(figsize=(10, 6))
-                    fi.head(20).plot.barh(color="coral")
-                    plt.title(f"Top 20 Features - {model_name}")
-                    plt.tight_layout()
-                    st.pyplot(plt, use_container_width=True)
-                else:
-                    st.info(f"{model_name} does not expose feature importances.")
-        else:
-            st.warning(f"{model_name} model not found. Please train it first.")
+            # Select column for current model
+            with cols[idx % 2]:
+                st.markdown(f"{model_name}")
+                c1, c2, c3 = st.columns(3)
+                c1.metric("R²", f"{metrics['r2']:.3f}")
+                c2.metric("MAE", f"{metrics['mae']:.2f}")
+                c3.metric("RMSE", f"{metrics['rmse']:.2f}")
+                fig, ax = plt.subplots()
+                sns.scatterplot(x=y, y=y_pred, alpha=0.6, ax=ax)
+                lims = [min(y.min(), y_pred.min()), max(y.max(), y_pred.max())]
+                ax.plot(lims, lims, 'r--')
+                ax.set_xlabel("Actual Revenue")
+                ax.set_ylabel("Predicted Revenue")
+                ax.set_title(f"{model_name} — Actual vs Predicted")
+                st.pyplot(fig)
+
+            # Start a new row every 2 models
+            if (idx + 1) % 2 == 0 and idx + 1 < len(model_files):
+                cols = st.columns(2)
+
+    except Exception as e:
+        st.warning(f"Could not load models: {e}")
+
+        

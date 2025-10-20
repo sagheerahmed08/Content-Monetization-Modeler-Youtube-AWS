@@ -1,32 +1,29 @@
 import streamlit as st
 import pandas as pd
-import matplotlib.pyplot as plt
-import seaborn as sns
-import os
 import plotly.express as px
+import seaborn as sns
+import matplotlib.pyplot as plt
+import boto3
+from scipy.stats import skew, kurtosis
 
 # Streamlit Config
-st.set_page_config(
-    page_title="📊 EDA | YouTube Ad Revenue Predictor",
-    page_icon="📊",
-    layout="wide"
-)
+st.set_page_config(page_title="📊 EDA | YouTube Ad Revenue Predictor", page_icon="📊", layout="wide")
 st.title("📊 Exploratory Data Analysis")
 
-
-BASE_DIR = os.path.dirname(os.path.dirname(__file__))
-RAW = os.path.join(BASE_DIR, "Data", "Raw", "youtube_ad_revenue_dataset.csv")
-CLEAN = os.path.join(BASE_DIR, "Data", "Cleaned", "youtube_ad_revenue_dataset_cleaned.csv")
+# 🔹 Your S3 Bucket and File Paths
+S3_BUCKET = "youtube-ad-revenue-app-sagheer"
+RAW_KEY = "Data/Raw/youtube_ad_revenue_dataset.csv"
+CLEAN_KEY = "Data/Cleaned/youtube_ad_revenue_dataset_cleaned.csv"
 
 @st.cache_data
-def load_data():
-    raw = pd.read_csv(RAW)
-    clean = pd.read_csv(CLEAN)
+def load_data_from_s3():
+    raw = pd.read_csv(f"s3://{S3_BUCKET}/{RAW_KEY}")
+    clean = pd.read_csv(f"s3://{S3_BUCKET}/{CLEAN_KEY}")
     return raw, clean
 
-raw_df, clean_df = load_data()
+raw_df, clean_df = load_data_from_s3()
 
-#  Overview 
+#  Overview
 st.subheader("Dataset Overview")
 col1, col2 = st.columns(2)
 with col1:
@@ -145,8 +142,28 @@ with tab5:
     })
     missing_df = pd.concat([missing_df, total_row], ignore_index=True)
     st.dataframe(missing_df, use_container_width=True, hide_index=True)
+# ------------------------------------------------------------------
+# 🧮 Numeric Summary & Stats
+# ------------------------------------------------------------------
+st.header("📈 Summary Statistics")
+numeric_cols = clean_df.select_dtypes(include=['int64', 'float64']).columns
+summary_df = clean_df[numeric_cols].describe().T
+summary_df["Skewness"] = clean_df[numeric_cols].apply(skew)
+summary_df["Kurtosis"] = clean_df[numeric_cols].apply(kurtosis)
+st.dataframe(summary_df, use_container_width=True)
 
-
+# ------------------------------------------------------------------
+# 🔥 Correlation Heatmap
+# ------------------------------------------------------------------
+st.header("🔗 Feature Correlation")
+corr = clean_df[numeric_cols].corr()
+fig1 = px.imshow(
+    corr,
+    text_auto=".2f",
+    aspect="auto",
+    title="Feature Correlation Heatmap (Plotly)"
+)
+st.plotly_chart(fig1, use_container_width=True)
 # Target Distribution
 st.header("🎯 Target Distribution (Ad Revenue USD)")
 column = st.selectbox(
@@ -167,3 +184,21 @@ with col1:
     else:
         st.warning(f"{column} not found in raw data.")
 
+# ------------------------------------------------------------------
+# 📦 Outlier Detection (Boxplots)
+# ------------------------------------------------------------------
+st.header("📦 Outlier Detection (Boxplots)")
+selected_col = st.selectbox("Select feature for outlier visualization", options=numeric_cols)
+fig = px.box(clean_df, x=selected_col, title=f"Boxplot for {selected_col}")
+st.plotly_chart(fig, use_container_width=True)
+
+# ------------------------------------------------------------------
+# 📈 Feature vs Target Relationship
+# ------------------------------------------------------------------
+st.header("📈 Feature vs Target Relationship")
+target_col = "ad_revenue_usd"
+feature = st.selectbox("Select Feature", options=[c for c in numeric_cols if c != target_col])
+fig = px.scatter(clean_df, x=feature, y=target_col, trendline="ols", title=f"{feature} vs Ad Revenue (USD)")
+st.plotly_chart(fig, use_container_width=True)
+
+st.success("✅ Full EDA completed successfully!")
