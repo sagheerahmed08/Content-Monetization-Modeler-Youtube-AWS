@@ -24,3 +24,6 @@ botocore
 
 # Utilities
 requests==2.32.4
+
+fsspec 
+s3fs
