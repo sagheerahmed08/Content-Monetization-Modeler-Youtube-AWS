@@ -56,16 +56,28 @@ def load_csv_from_s3(bucket, key):
     obj = s3.get_object(Bucket=bucket, Key=key)
     return pd.read_csv(io.BytesIO(obj['Body'].read()))
 
+import tempfile
+import os
+
 def upload_model_to_s3(pipe, bucket, key, is_xgb=False):
-    """Upload pipeline/model to S3"""
+    """Upload pipeline/model to S3 (supports XGBoost)"""
     buffer = io.BytesIO()
+    
     if is_xgb and has_xgb:
-        booster = pipe.named_steps['model'].get_booster()  # XGB inside pipeline
-        booster.save_model(buffer)
+        # Save XGBoost to a temporary file first
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".json") as tmp_file:
+            booster = pipe.named_steps['model'].get_booster()
+            booster.save_model(tmp_file.name)
+            tmp_file.close()
+            with open(tmp_file.name, "rb") as f:
+                buffer.write(f.read())
+            os.remove(tmp_file.name)
     else:
         joblib.dump(pipe, buffer)
+    
     buffer.seek(0)
     s3.upload_fileobj(buffer, bucket, key)
+
 
 def load_model_from_s3(bucket, key, is_xgb=False):
     obj = s3.get_object(Bucket=bucket, Key=key)
