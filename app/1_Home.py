@@ -94,7 +94,7 @@ with col1:
 """)
         
 with col2:   
-    st.success("2. Go to **Model Training** to train multiple models and evaluate performance.")
+    st.success("2. Use **Model Training** to train multiple models, evaluate and Visualize .")
     st.write("""
 **Model Training**
 
