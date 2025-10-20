@@ -39,7 +39,16 @@ S3_BUCKET = "youtube-ad-revenue-app-sagheer"
 CLEAN_KEY = "Data/Cleaned/youtube_ad_revenue_dataset_cleaned.csv"
 MODEL_PREFIX = "models"
 
-s3 = boto3.client("s3", region_name="eu-north-1")
+import boto3
+import streamlit as st
+
+s3 = boto3.client(
+    "s3",
+    aws_access_key_id=st.secrets["aws"]["aws_access_key_id"],
+    aws_secret_access_key=st.secrets["aws"]["aws_secret_access_key"],
+    region_name=st.secrets["aws"]["region"]
+)
+
 
 # ----------------------------
 # Utility Functions
