@@ -61,7 +61,6 @@ def load_csv_from_s3(bucket, key):
 def upload_model_to_s3(pipe, bucket, key, is_xgb=False):
     """Upload pipeline/model to S3 (supports XGBoost)"""
     buffer = io.BytesIO()
-    
     if is_xgb and has_xgb:
         with tempfile.NamedTemporaryFile(delete=False, suffix=".json") as tmp_file:
             booster = pipe.named_steps['model'].get_booster()
@@ -72,16 +71,19 @@ def upload_model_to_s3(pipe, bucket, key, is_xgb=False):
             os.remove(tmp_file.name)
     else:
         joblib.dump(pipe, buffer)
-    
     buffer.seek(0)
     s3.upload_fileobj(buffer, bucket, key)
 
 def load_model_from_s3(bucket, key, is_xgb=False):
     obj = s3.get_object(Bucket=bucket, Key=key)
     if is_xgb and has_xgb:
-        booster = _xgb.Booster()
-        booster.load_model(io.BytesIO(obj['Body'].read()))
-        return booster
+        model = XGBRegressor()
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".json") as tmp_file:
+            tmp_file.write(obj['Body'].read())
+            tmp_file.flush()
+            model.load_model(tmp_file.name)
+        os.remove(tmp_file.name)
+        return model
     else:
         return joblib.load(io.BytesIO(obj['Body'].read()))
 
@@ -122,7 +124,44 @@ tab1, tab2 = st.tabs(["Model Training", "Model Visualization"])
 # TAB 1: MODEL TRAINING
 # ============================
 with tab1:
-    st.subheader("🚀 Train & Upload Models")
+    st.subheader("🚀 Train Model")
+
+    # --- Check existing models in S3 ---
+    try:
+        response = s3.list_objects_v2(Bucket=S3_BUCKET, Prefix=MODEL_PREFIX)
+        existing_keys = [item['Key'] for item in response.get('Contents', [])]
+
+        model_files = [
+            f"{MODEL_PREFIX}/RandomForest.joblib",
+            f"{MODEL_PREFIX}/Ridge.joblib",
+            f"{MODEL_PREFIX}/Lasso.joblib",
+            f"{MODEL_PREFIX}/LinearRegression.joblib",
+            f"{MODEL_PREFIX}/XGBoost.joblib",
+            f"{MODEL_PREFIX}/BestModel.joblib"
+        ]
+
+        for model_path in model_files:
+            if model_path in existing_keys:
+                st.info(f"✅ {model_path} already uploaded to S3.")
+            else:
+                st.warning(f"⚠️ {model_path} not found in S3.")
+    except Exception as e:
+        st.error(f"❌ Failed to list S3 models: {e}")
+
+    # --- Load results.csv ---
+    try:
+        obj = s3.get_object(Bucket=S3_BUCKET, Key=f"{MODEL_PREFIX}/results.csv")
+        df_results = pd.read_csv(io.BytesIO(obj['Body'].read()))
+        st.success("📊 Found existing results in S3")
+        st.dataframe(df_results)
+
+        fig = px.bar(df_results, x="Model", y="CV_R2_Mean", error_y="CV_R2_STD",
+                     title="Model CV R² Comparison", color="Model", text="CV_R2_Mean")
+        st.plotly_chart(fig, use_container_width=True)
+    except:
+        st.warning("No results.csv found in S3 yet.")
+
+    st.subheader("🧠 Train & Upload Models")
 
     models = {
         'LinearRegression': LinearRegression(),
@@ -146,8 +185,8 @@ with tab1:
 
     results = {}
 
-    if st.button("🧠 Train & Upload"):
-        with st.spinner("Training models... ⏳"):
+    if st.button("🧠 Train Model"):
+        with st.spinner("Training models... ⏳ Please wait..."):
             for name, model in models.items():
                 st.write(f"🔹 Training {name}...")
                 pipe = Pipeline([('preprocessor', preprocessor), ('model', model)])
@@ -161,7 +200,7 @@ with tab1:
                 st.write(f"{name}: CV R² = {np.mean(scores):.4f} ± {np.std(scores):.4f}")
 
             best_name = max(results, key=lambda k: results[k]['cv_r2_mean'])
-            st.success(f"🏆 Best Model: {best_name} with CV R² = {results[best_name]['cv_r2_mean']:.4f}")
+            st.success(f"🏆 Best Model: {best_name} (CV R² = {results[best_name]['cv_r2_mean']:.4f})")
 
             best_model = load_model_from_s3(S3_BUCKET, f"{MODEL_PREFIX}/{best_name}.joblib", is_xgb=(best_name=='XGBoost'))
             upload_model_to_s3(best_model, S3_BUCKET, f"{MODEL_PREFIX}/BestModel.joblib", is_xgb=(best_name=='XGBoost'))
@@ -179,42 +218,17 @@ with tab2:
     st.subheader("📈 Model Visualization & Evaluation")
 
     if df is not None:
+        # Show model performance table
         try:
             obj = s3.get_object(Bucket=S3_BUCKET, Key=f"{MODEL_PREFIX}/results.csv")
             df_results = pd.read_csv(io.BytesIO(obj['Body'].read()))
             st.dataframe(df_results)
-
-            fig = px.bar(df_results, x="Model", y="CV_R2_Mean", error_y="CV_R2_STD",
-                         title="Model CV R² Comparison", color="Model", text="CV_R2_Mean")
+            fig = px.bar(df_results, x="Model", y="CV_R2_Mean", error_y="CV_R2_STD", title="Model CV R² Comparison", color="Model", text="CV_R2_Mean")
             st.plotly_chart(fig, use_container_width=True)
         except:
-            st.warning("No results CSV found.")
+            st.warning("No model results available.")
 
-        try:
-            best_model = load_model_from_s3(S3_BUCKET, f"{MODEL_PREFIX}/BestModel.joblib")
-            y_pred = best_model.predict(X)
-            metrics = eval_metrics(y, y_pred)
-
-            st.subheader("🏆 Best Model Evaluation")
-            col1, col2, col3 = st.columns(3)
-            col1.metric("R² Score", f"{metrics['r2']:.3f}")
-            col2.metric("MAE", f"{metrics['mae']:.2f}")
-            col3.metric("RMSE", f"{metrics['rmse']:.2f}")
-
-            fig, ax = plt.subplots()
-            sns.scatterplot(x=y, y=y_pred, alpha=0.6, ax=ax)
-            lims = [min(y.min(), y_pred.min()), max(y.max(), y_pred.max())]
-            ax.plot(lims, lims, 'r--')
-            ax.set_xlabel("Actual Revenue")
-            ax.set_ylabel("Predicted Revenue")
-            ax.set_title("Actual vs Predicted Revenue")
-            st.pyplot(fig)
-        except Exception as e:
-            st.warning(f"Could not load BestModel: {e}")
-
-        # --------------------------
-        # Model Evaluation Summary
-        # --------------------------
+        # Evaluate all models
         model_files = [
             "BestModel.joblib",
             "LinearRegression.joblib",
@@ -225,7 +239,6 @@ with tab2:
         ]
 
         st.subheader("📊 Model Evaluation Summary")
-
         cols = st.columns(2)
 
         for idx, model_path in enumerate(model_files):
@@ -234,13 +247,8 @@ with tab2:
                 is_xgb = has_xgb and "xgboost" in model_name.lower()
                 model = load_model_from_s3(S3_BUCKET, f"{MODEL_PREFIX}/{model_path}", is_xgb=is_xgb)
 
-                if model is None:
-                    st.warning(f"{model_name} could not be loaded.")
-                    continue
-
                 if is_xgb:
-                    dmatrix = _xgb.DMatrix(X)
-                    y_pred = model.predict(dmatrix)
+                    y_pred = model.predict(X)
                 else:
                     y_pred = model.predict(X)
 
