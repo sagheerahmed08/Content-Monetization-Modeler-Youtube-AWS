@@ -71,6 +71,77 @@ for i, tech in enumerate(tech_stack):
     else:
         col3.markdown(tech)
 
+st.subheader("⚡ How to Use This App")
+col1, col2, col3 = st.columns(3)
+
+with col1:
+    st.success("1. Navigate to **EDA** to explore the dataset and understand features.")
+    st.write("""
+**EDA (Exploratory Data Analysis)**
+
+**Purpose:** Understand the dataset before building models.
+
+**What you do:**
+- View raw and cleaned datasets.
+- Check for missing values, outliers, or inconsistencies.
+- Visualize distributions of features like `views`, `likes`, `comments`, `watch_time_minutes`.
+- Explore relationships between features and the target variable `ad_revenue_usd`.
+- Use plots like scatter plots, histograms, and box plots.
+
+**Why it’s important:**
+- Helps you identify which features are important for predicting ad revenue.
+- Detects potential problems in the dataset that could affect model accuracy.
+""")
+        
+with col2:   
+    st.success("2. Go to **Model Training** to train multiple models and evaluate performance.")
+    st.write("""
+**Model Training**
+
+**Purpose:** Build machine learning models that can predict ad revenue.
+
+**What you do:**
+- Select features (numerical and categorical).
+- Apply preprocessing:
+  - Handle missing values.
+  - Scale numerical features.
+  - One-hot encode categorical features.
+- Train multiple regression models:
+  - Linear Regression – baseline linear model.
+  - Ridge & Lasso – linear models with regularization.
+  - Random Forest – ensemble tree-based model capturing non-linear relationships.
+  - XGBoost – advanced boosting model (if installed).
+- Evaluate models using cross-validation (R², RMSE, MAE).
+- Automatically select the **best model** based on CV R².
+- Store trained models and results in AWS S3 for reuse.
+
+**Why it’s important:**
+- Ensures you have a reliable, accurate model.
+- Allows comparison of different algorithms to pick the most suitable one.
+""")
+
+with col3:    
+    st.success("3. Use **Prediction** to estimate ad revenue for new videos.")
+    st.write("""
+**Prediction**
+
+**Purpose:** Predict YouTube ad revenue for new video data.
+
+**What you do:**
+- Input new video metrics: `views`, `likes`, `comments`, `watch_time_minutes`, `video_length_minutes`, `subscribers`, `category`, `device`, `country`.
+- The app calculates derived features automatically:
+  - **Engagement Rate** = `(likes + comments) / views`
+  - **Average Watch Time per View** = `watch_time_minutes / views`
+- The selected model predicts the **ad revenue in USD**.
+- Converts revenue to INR using the latest USD → INR exchange rate.
+- Displays predicted revenue, metrics, and a small feature chart for insight.
+- Optionally download the input + prediction as a CSV.
+
+**Why it’s important:**
+- Helps YouTubers or analysts estimate potential revenue before uploading videos.
+- Provides actionable insights for content strategy.
+""")
+
 # ---------------------------
 # Footer / Contact
 # ---------------------------
