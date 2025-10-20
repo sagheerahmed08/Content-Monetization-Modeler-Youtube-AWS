@@ -16,7 +16,9 @@ from sklearn.impute import SimpleImputer
 from sklearn.linear_model import LinearRegression, Ridge, Lasso
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.metrics import r2_score, mean_absolute_error, mean_squared_error
-import boto3  
+import boto3
+import tempfile
+import os
 
 # ----------------------------
 # Optional XGBoost
@@ -56,15 +58,11 @@ def load_csv_from_s3(bucket, key):
     obj = s3.get_object(Bucket=bucket, Key=key)
     return pd.read_csv(io.BytesIO(obj['Body'].read()))
 
-import tempfile
-import os
-
 def upload_model_to_s3(pipe, bucket, key, is_xgb=False):
     """Upload pipeline/model to S3 (supports XGBoost)"""
     buffer = io.BytesIO()
     
     if is_xgb and has_xgb:
-        # Save XGBoost to a temporary file first
         with tempfile.NamedTemporaryFile(delete=False, suffix=".json") as tmp_file:
             booster = pipe.named_steps['model'].get_booster()
             booster.save_model(tmp_file.name)
@@ -77,7 +75,6 @@ def upload_model_to_s3(pipe, bucket, key, is_xgb=False):
     
     buffer.seek(0)
     s3.upload_fileobj(buffer, bucket, key)
-
 
 def load_model_from_s3(bucket, key, is_xgb=False):
     obj = s3.get_object(Bucket=bucket, Key=key)
@@ -106,7 +103,6 @@ except Exception as e:
     df = None
 
 if df is not None:
-    # Feature Engineering
     df['engagement_rate'] = (df['likes'] + df['comments']) / df['views'].replace(0,1)
     df['avg_watch_time_per_view'] = df['watch_time_minutes'] / df['views'].replace(0,1)
 
@@ -164,14 +160,12 @@ with tab1:
                 results[name] = {'cv_r2_mean': np.mean(scores), 'cv_r2_std': np.std(scores)}
                 st.write(f"{name}: CV R² = {np.mean(scores):.4f} ± {np.std(scores):.4f}")
 
-            # Best model
             best_name = max(results, key=lambda k: results[k]['cv_r2_mean'])
             st.success(f"🏆 Best Model: {best_name} with CV R² = {results[best_name]['cv_r2_mean']:.4f}")
 
             best_model = load_model_from_s3(S3_BUCKET, f"{MODEL_PREFIX}/{best_name}.joblib", is_xgb=(best_name=='XGBoost'))
             upload_model_to_s3(best_model, S3_BUCKET, f"{MODEL_PREFIX}/BestModel.joblib", is_xgb=(best_name=='XGBoost'))
 
-            # Save results CSV
             perf_df = pd.DataFrame([{"Model": k, "CV_R2_Mean": v['cv_r2_mean'], "CV_R2_STD": v['cv_r2_std']} for k,v in results.items()])
             csv_buffer = io.StringIO()
             perf_df.to_csv(csv_buffer, index=False)
@@ -185,7 +179,6 @@ with tab2:
     st.subheader("📈 Model Visualization & Evaluation")
 
     if df is not None:
-        # Load results CSV
         try:
             obj = s3.get_object(Bucket=S3_BUCKET, Key=f"{MODEL_PREFIX}/results.csv")
             df_results = pd.read_csv(io.BytesIO(obj['Body'].read()))
@@ -197,7 +190,6 @@ with tab2:
         except:
             st.warning("No results CSV found.")
 
-        # Load Best Model
         try:
             best_model = load_model_from_s3(S3_BUCKET, f"{MODEL_PREFIX}/BestModel.joblib")
             y_pred = best_model.predict(X)
@@ -220,57 +212,58 @@ with tab2:
         except Exception as e:
             st.warning(f"Could not load BestModel: {e}")
 
-        # Load Best Model
+        # --------------------------
+        # Model Evaluation Summary
+        # --------------------------
         model_files = [
-        "BestModel.joblib",
-        "LinearRegression.joblib",
-        "Lasso.joblib",
-        "Ridge.joblib",
-        "RandomForest.joblib",
-        "XGBoost.joblib"
-    ]
-    
-    st.subheader("Model Evaluation Summary")
-    
-    cols = st.columns(2)
-    
-    for idx, model_path in enumerate(model_files):
-        model = load_model_from_s3(S3_BUCKET, f"{MODEL_PREFIX}/{model_path}")
-        model_name = model_path.replace(".joblib", "")
-        
-        if model is None:
-            st.warning(f"{model_name} could not be loaded.")
-            continue
-    
-        # Check if XGBoost Booster
-        if has_xgb and "xgboost" in model_name.lower():
-            # Convert X to DMatrix
-            dmatrix = _xgb.DMatrix(X)
-            y_pred = model.predict(dmatrix)
-        else:
-            y_pred = model.predict(X)
-    
-        metrics = eval_metrics(y, y_pred)
-    
-        # Select column
-        with cols[idx % 2]:
-            st.markdown(f"### {model_name}")
-            c1, c2, c3 = st.columns(3)
-            c1.metric("R²", f"{metrics['r2']:.3f}")
-            c2.metric("MAE", f"{metrics['mae']:.2f}")
-            c3.metric("RMSE", f"{metrics['rmse']:.2f}")
-    
-            fig, ax = plt.subplots()
-            sns.scatterplot(x=y, y=y_pred, alpha=0.6, ax=ax)
-            lims = [min(y.min(), y_pred.min()), max(y.max(), y_pred.max())]
-            ax.plot(lims, lims, 'r--')
-            ax.set_xlabel("Actual Revenue")
-            ax.set_ylabel("Predicted Revenue")
-            ax.set_title(f"{model_name} — Actual vs Predicted")
-            st.pyplot(fig)
-    
-        # New row every 2 models
-        if (idx + 1) % 2 == 0 and idx + 1 < len(model_files):
-            cols = st.columns(2)
+            "BestModel.joblib",
+            "LinearRegression.joblib",
+            "Lasso.joblib",
+            "Ridge.joblib",
+            "RandomForest.joblib",
+            "XGBoost.joblib"
+        ]
 
+        st.subheader("📊 Model Evaluation Summary")
 
+        cols = st.columns(2)
+
+        for idx, model_path in enumerate(model_files):
+            model_name = model_path.replace(".joblib", "")
+            try:
+                is_xgb = has_xgb and "xgboost" in model_name.lower()
+                model = load_model_from_s3(S3_BUCKET, f"{MODEL_PREFIX}/{model_path}", is_xgb=is_xgb)
+
+                if model is None:
+                    st.warning(f"{model_name} could not be loaded.")
+                    continue
+
+                if is_xgb:
+                    dmatrix = _xgb.DMatrix(X)
+                    y_pred = model.predict(dmatrix)
+                else:
+                    y_pred = model.predict(X)
+
+                metrics = eval_metrics(y, y_pred)
+
+                with cols[idx % 2]:
+                    st.markdown(f"### {model_name}")
+                    c1, c2, c3 = st.columns(3)
+                    c1.metric("R²", f"{metrics['r2']:.3f}")
+                    c2.metric("MAE", f"{metrics['mae']:.2f}")
+                    c3.metric("RMSE", f"{metrics['rmse']:.2f}")
+
+                    fig, ax = plt.subplots()
+                    sns.scatterplot(x=y, y=y_pred, alpha=0.6, ax=ax)
+                    lims = [min(y.min(), y_pred.min()), max(y.max(), y_pred.max())]
+                    ax.plot(lims, lims, 'r--')
+                    ax.set_xlabel("Actual Revenue")
+                    ax.set_ylabel("Predicted Revenue")
+                    ax.set_title(f"{model_name} — Actual vs Predicted")
+                    st.pyplot(fig)
+
+                if (idx + 1) % 2 == 0 and idx + 1 < len(model_files):
+                    cols = st.columns(2)
+
+            except Exception as e:
+                st.warning(f"⚠️ Could not evaluate {model_name}: {e}")
