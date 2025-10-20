@@ -86,5 +86,9 @@ st.image(
 # ---------------------------
 st.markdown("---")
 st.markdown("""
-Made with ❤️ by **Your Name** | Data Science & ML Project  
-""")
+Made with ❤️ by **Sagheer Ahmed** | Data Science & ML Project  
+
+[![LinkedIn](https://cdn.jsdelivr.net/gh/simple-icons/simple-icons/icons/linkedin.svg)](https://www.linkedin.com/in/sagheerahmedcse/)  
+[![GitHub](https://cdn.jsdelivr.net/gh/simple-icons/simple-icons/icons/github.svg)](https://github.com/sagheerahmed08)
+""", unsafe_allow_html=True)
+
