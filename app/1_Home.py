@@ -86,9 +86,15 @@ st.image(
 # ---------------------------
 st.markdown("---")
 st.markdown("""
-Made with ❤️ by **Sagheer Ahmed** | Data Science & ML Project  
-
-[![LinkedIn](https://cdn.jsdelivr.net/gh/simple-icons/simple-icons/icons/linkedin.svg)](https://www.linkedin.com/in/sagheerahmedcse/)  
-[![GitHub](https://cdn.jsdelivr.net/gh/simple-icons/simple-icons/icons/github.svg)](https://github.com/sagheerahmed08)
+<div style="text-align:center;">
+    Made with ❤️ by <b>Sagheer Ahmed</b> | Data Science & ML Project<br><br>
+    <a href="https://www.linkedin.com/in/sagheerahmedcse/" target="_blank">
+        <img src="https://cdn.jsdelivr.net/gh/simple-icons/simple-icons/icons/linkedin.svg" height="30" style="margin-right:10px;">
+    </a>
+    <a href="https://github.com/sagheerahmed08" target="_blank">
+        <img src="https://cdn.jsdelivr.net/gh/simple-icons/simple-icons/icons/github.svg" height="30">
+    </a>
+</div>
 """, unsafe_allow_html=True)
+
 
