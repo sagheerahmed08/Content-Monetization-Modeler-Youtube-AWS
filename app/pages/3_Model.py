@@ -247,10 +247,19 @@ with tab2:
                 is_xgb = has_xgb and "xgboost" in model_name.lower()
                 model = load_model_from_s3(S3_BUCKET, f"{MODEL_PREFIX}/{model_path}", is_xgb=is_xgb)
 
+                if model is None:
+                    st.warning(f"{model_name} could not be loaded.")
+                    continue
+
+                # Apply preprocessing to X before evaluation
+                X_processed = preprocessor.fit_transform(X)
+
                 if is_xgb:
-                    y_pred = model.predict(X)
+                    # Convert preprocessed data to DMatrix for XGBoost
+                    dmatrix = _xgb.DMatrix(X_processed)
+                    y_pred = model.predict(dmatrix)
                 else:
-                    y_pred = model.predict(X)
+                    y_pred = model.predict(X_processed)
 
                 metrics = eval_metrics(y, y_pred)
 
