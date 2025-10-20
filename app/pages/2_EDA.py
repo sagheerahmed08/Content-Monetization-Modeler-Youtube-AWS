@@ -5,28 +5,50 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 import boto3
 from scipy.stats import skew, kurtosis
+from io import StringIO
 
 # Streamlit Config
 st.set_page_config(page_title="📊 EDA | YouTube Ad Revenue Predictor", page_icon="📊", layout="wide")
 st.title("📊 Exploratory Data Analysis")
-# Load AWS credentials from secrets
-aws_credentials = {
-    "key": st.secrets["aws"]["aws_access_key_id"],
-    "secret": st.secrets["aws"]["aws_secret_access_key"],
-    "client_kwargs": {"region_name": st.secrets["aws"]["region"]},
-}
+
+# -------------------------------
+# 🔹 Streamlit Secrets for AWS
+# -------------------------------
+aws_access_key = st.secrets["aws"]["aws_access_key_id"]
+aws_secret_key = st.secrets["aws"]["aws_secret_access_key"]
+aws_region = st.secrets["aws"]["region"]
 
 S3_BUCKET = "youtube-ad-revenue-app-sagheer"
 RAW_KEY = "Data/Raw/youtube_ad_revenue_dataset.csv"
 CLEAN_KEY = "Data/Cleaned/youtube_ad_revenue_dataset_cleaned.csv"
 
+# -------------------------------
+# 🔹 Load CSV from S3
+# -------------------------------
 @st.cache_data
 def load_data_from_s3():
-    raw = pd.read_csv(f"s3://{S3_BUCKET}/{RAW_KEY}", storage_options=aws_credentials)
-    clean = pd.read_csv(f"s3://{S3_BUCKET}/{CLEAN_KEY}", storage_options=aws_credentials)
-    return raw, clean
+    # Create S3 client
+    s3_client = boto3.client(
+        "s3",
+        aws_access_key_id=aws_access_key,
+        aws_secret_access_key=aws_secret_key,
+        region_name=aws_region
+    )
 
+    def read_s3_csv(key):
+        obj = s3_client.get_object(Bucket=S3_BUCKET, Key=key)
+        return pd.read_csv(StringIO(obj["Body"].read().decode("utf-8")))
+
+    raw_df = read_s3_csv(RAW_KEY)
+    clean_df = read_s3_csv(CLEAN_KEY)
+    return raw_df, clean_df
+
+# -------------------------------
+# 🔹 Load Data
+# -------------------------------
 raw_df, clean_df = load_data_from_s3()
+st.success("✅ Data loaded from S3 successfully!")
+
 
 #  Overview
 st.subheader("Dataset Overview")
