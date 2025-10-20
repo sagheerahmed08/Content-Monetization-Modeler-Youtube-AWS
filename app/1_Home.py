@@ -72,22 +72,12 @@ for i, tech in enumerate(tech_stack):
         col3.markdown(tech)
 
 # ---------------------------
-# Fun Visualization / Banner
-# ---------------------------
-st.markdown("---")
-st.image(
-    "https://images.unsplash.com/photo-1557800636-894a64c1696f?auto=format&fit=crop&w=1400&q=80",
-    caption="Visualize YouTube Performance & Revenue",
-    use_column_width=True
-)
-
-# ---------------------------
 # Footer / Contact
 # ---------------------------
 st.markdown("---")
 st.markdown("""
 <div style="text-align:center;">
-    Made with ❤️ by <b>Sagheer Ahmed</b> | Data Science & ML Project<br><br>
+    Project By <b>Sagheer Ahmed</b> | Data Science & ML Project<br><br>
     <a href="https://www.linkedin.com/in/sagheerahmedcse/" target="_blank">
         <img src="https://cdn.jsdelivr.net/gh/simple-icons/simple-icons/icons/linkedin.svg" height="30" style="margin-right:10px;">
     </a>
