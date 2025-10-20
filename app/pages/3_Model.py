@@ -16,7 +16,7 @@ from sklearn.impute import SimpleImputer
 from sklearn.linear_model import LinearRegression, Ridge, Lasso
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.metrics import r2_score, mean_absolute_error, mean_squared_error
-
+import boto3  
 # ----------------------------
 # Optional XGBoost
 # ----------------------------
