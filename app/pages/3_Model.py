@@ -219,3 +219,49 @@ with tab2:
             st.pyplot(fig)
         except Exception as e:
             st.warning(f"Could not load BestModel: {e}")
+
+        # Load Best Model
+        model_files = [
+        "BestModel.joblib",
+        "LinearRegression.joblib",
+        "Lasso.joblib",
+        "Ridge.joblib",
+        "RandomForest.joblib",
+        "XGBoost.joblib"
+    ]
+
+    try:
+        st.subheader("Model Evaluation Summary")
+
+        # Create 2 columns per row → for better layout
+        cols = st.columns(2)
+
+        for idx, model_path in enumerate(model_files):
+            model = load_model_from_s3(S3_BUCKET, f"{MODEL_PREFIX}/{model_path}")
+            y_pred = model.predict(X)
+            metrics = eval_metrics(y, y_pred)
+            model_name = model_path.replace(".joblib", "")
+
+            # Select column for current model
+            with cols[idx % 2]:
+                st.markdown(f"{model_name}")
+                c1, c2, c3 = st.columns(3)
+                c1.metric("R²", f"{metrics['r2']:.3f}")
+                c2.metric("MAE", f"{metrics['mae']:.2f}")
+                c3.metric("RMSE", f"{metrics['rmse']:.2f}")
+                fig, ax = plt.subplots()
+                sns.scatterplot(x=y, y=y_pred, alpha=0.6, ax=ax)
+                lims = [min(y.min(), y_pred.min()), max(y.max(), y_pred.max())]
+                ax.plot(lims, lims, 'r--')
+                ax.set_xlabel("Actual Revenue")
+                ax.set_ylabel("Predicted Revenue")
+                ax.set_title(f"{model_name} — Actual vs Predicted")
+                st.pyplot(fig)
+
+            # Start a new row every 2 models
+            if (idx + 1) % 2 == 0 and idx + 1 < len(model_files):
+                cols = st.columns(2)
+
+    except Exception as e:
+        st.warning(f"Could not load models: {e}")
+
