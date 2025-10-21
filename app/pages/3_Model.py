@@ -233,7 +233,7 @@ with tab2:
             df_results = pd.read_csv(io.BytesIO(obj['Body'].read()))
             st.dataframe(df_results)
             fig = px.bar(df_results, x="Model", y="CV_R2_Mean", error_y="CV_R2_STD",
-                         title="Model CV R² Comparison", color="Model")
+                         title="Model CV R² Comparison", color="Model",hover_data=["CV_R2_Mean", "CV_R2_STD"], text="CV_R2_Mean")
             st.plotly_chart(fig, use_container_width=True)
         except:
             st.warning("No model results found.")
