@@ -19,12 +19,12 @@ from sklearn.metrics import r2_score, mean_absolute_error, mean_squared_error
 import boto3
 
 # optional xgboost
-try:
-    _xgb = importlib.import_module("xgboost")
-    XGBRegressor = getattr(_xgb, "XGBRegressor")
-    has_xgb = True
-except Exception:
-    has_xgb = False
+# try:
+#     _xgb = importlib.import_module("xgboost")
+#     XGBRegressor = getattr(_xgb, "XGBRegressor")
+#     has_xgb = True
+# except Exception:
+#     has_xgb = False
 
 # ----------------------------
 # Page Config
