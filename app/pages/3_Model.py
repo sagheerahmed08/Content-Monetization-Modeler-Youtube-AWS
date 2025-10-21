@@ -79,7 +79,7 @@ st.write("### Dataset Preview")
 st.dataframe(df.head())
 
 # ---------- Feature Selection ----------
-target_col = "revenue"
+target_col = "ad_revenue_usd"
 X = df.drop(columns=[target_col])
 y = df[target_col]
 
