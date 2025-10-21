@@ -60,10 +60,11 @@ def upload_model_to_s3(model, bucket, key):
     buffer.seek(0)
     s3.upload_fileobj(buffer, bucket, key)
 
-def load_model_from_s3(bucket, key):
+def load_model_from_s3(bucket, key, is_xgb=False):
     """Load model from S3"""
     obj = s3.get_object(Bucket=bucket, Key=key)
-    return joblib.load(io.BytesIO(obj['Body'].read()))
+    model = joblib.load(io.BytesIO(obj['Body'].read()))
+    return model
 
 def eval_metrics(y_true, y_pred):
     return {
