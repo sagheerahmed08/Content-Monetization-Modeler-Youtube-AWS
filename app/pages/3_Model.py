@@ -19,6 +19,7 @@ from sklearn.metrics import r2_score, mean_absolute_error, mean_squared_error
 import boto3
 import tempfile
 import os
+from sklearn.preprocessing import LabelEncoder
 
 # ---------------------------- #
 # Optional XGBoost
@@ -242,6 +243,8 @@ with tab2:
         except:
             st.warning("No model results found.")
 
+
+
         model_files = [
             "BestModel.joblib",
             "LinearRegression.joblib",
@@ -250,9 +253,10 @@ with tab2:
             "RandomForest.joblib",
             "XGBoost.joblib"
         ]
+        
         st.subheader("📊 Model Evaluation Summary")
         cols = st.columns(2)
-
+        
         for idx, model_path in enumerate(model_files):
             model_name = model_path.replace(".joblib", "")
             try:
@@ -260,17 +264,26 @@ with tab2:
                 model = load_model_from_s3(S3_BUCKET, f"{MODEL_PREFIX}/{model_path}", is_xgb=is_xgb)
                 if model is None:
                     continue
-
-                y_pred = model.predict(X)
+        
+                X_eval = X.copy()
+        
+                # Handle categorical columns for XGBoost only
+                if is_xgb:
+                    for col in X_eval.select_dtypes(include=['object']).columns:
+                        le = LabelEncoder()
+                        X_eval[col] = le.fit_transform(X_eval[col].astype(str))
+        
+                # Predict
+                y_pred = model.predict(X_eval)
                 metrics = eval_metrics(y, y_pred)
-
+        
                 with cols[idx % 2]:
                     st.markdown(f"### {model_name}")
                     c1, c2, c3 = st.columns(3)
                     c1.metric("R²", f"{metrics['r2']:.3f}")
                     c2.metric("MAE", f"{metrics['mae']:.2f}")
                     c3.metric("RMSE", f"{metrics['rmse']:.2f}")
-
+        
                     fig, ax = plt.subplots()
                     sns.scatterplot(x=y, y=y_pred, alpha=0.6, ax=ax)
                     lims = [min(y.min(), y_pred.min()), max(y.max(), y_pred.max())]
@@ -279,6 +292,7 @@ with tab2:
                     ax.set_ylabel("Predicted Revenue")
                     ax.set_title(f"{model_name} — Actual vs Predicted")
                     st.pyplot(fig)
-
+        
             except Exception as e:
                 st.warning(f"⚠️ Could not evaluate {model_name}: {e}")
+
