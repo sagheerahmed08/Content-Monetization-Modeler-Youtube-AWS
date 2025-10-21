@@ -7,24 +7,24 @@ import seaborn as sns
 import plotly.express as px
 import io
 import time
-import importlib
 from sklearn.model_selection import train_test_split, cross_val_score
 from sklearn.preprocessing import StandardScaler, OneHotEncoder
 from sklearn.pipeline import Pipeline
 from sklearn.compose import ColumnTransformer
-from sklearn.impute import SimpleImputer
 from sklearn.linear_model import LinearRegression, Ridge, Lasso
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.metrics import r2_score, mean_absolute_error, mean_squared_error
 import boto3
 
-# optional xgboost
-# try:
-#     _xgb = importlib.import_module("xgboost")
-#     XGBRegressor = getattr(_xgb, "XGBRegressor")
-#     has_xgb = True
-# except Exception:
-#     has_xgb = False
+# ----------------------------
+# Optional XGBoost
+# ----------------------------
+try:
+    import xgboost as xgb
+    from xgboost import XGBRegressor
+    has_xgb = True
+except ImportError:
+    has_xgb = False
 
 # ----------------------------
 # Page Config
@@ -52,21 +52,31 @@ def eval_metrics(y_true, y_pred):
         "rmse": np.sqrt(mean_squared_error(y_true, y_pred))
     }
 
+def upload_model_to_s3(model, bucket, key, is_xgb=False):
+    buffer = io.BytesIO()
+    if is_xgb:
+        model.save_model(buffer)
+        buffer.seek(0)
+        s3.upload_fileobj(buffer, bucket, key)
+    else:
+        joblib.dump(model, buffer)
+        buffer.seek(0)
+        s3.upload_fileobj(buffer, bucket, key)
+
 def load_model_from_s3(bucket, key, is_xgb=False):
     try:
         obj = s3.get_object(Bucket=bucket, Key=key)
         bytestream = io.BytesIO(obj["Body"].read())
-        if is_xgb:
-            model = xgb.Booster()
+        if is_xgb and has_xgb:
+            model = XGBRegressor()
             model.load_model(bytestream)
+            return model
         else:
-            model = joblib.load(bytestream)
-        return model
-    except Exception as e:
-        st.warning(f"⚠️ Could not load model {key}: {e}")
+            return joblib.load(bytestream)
+    except:
         return None
 
-# ---------- Load Cleaned Data from S3 ----------
+# ---------- Load Dataset ----------
 try:
     obj = s3.get_object(Bucket=S3_BUCKET, Key=CLEAN_KEY)
     df = pd.read_csv(io.BytesIO(obj["Body"].read()))
@@ -97,117 +107,77 @@ tab1, tab2 = st.tabs(["⚙️ Train Model", "📊 Model Evaluation"])
 
 # ---------- TAB 1: TRAIN ----------
 with tab1:
-    st.subheader("🚀 Train Model")
+    st.subheader("🚀 Train Models")
 
-    # List models in S3
-    response = s3.list_objects_v2(Bucket=S3_BUCKET, Prefix=MODEL_PREFIX)
-    existing_keys = [item['Key'] for item in response.get('Contents', [])] if 'Contents' in response else []
+    if st.button("🧠 Train Models"):
+        with st.spinner("Training models... ⏳"):
+            X_processed = preprocessor.fit_transform(X)
+            X_train, X_test, y_train, y_test = train_test_split(X_processed, y, test_size=0.2, random_state=42)
 
-    model_files = [
-        f"{MODEL_PREFIX}/RandomForest.joblib",
-        f"{MODEL_PREFIX}/Ridge.joblib",
-        f"{MODEL_PREFIX}/Lasso.joblib",
-        f"{MODEL_PREFIX}/LinearRegression.joblib",
-        f"{MODEL_PREFIX}/XGBoost.joblib",
-        f"{MODEL_PREFIX}/BestModel.joblib"
-    ]
+            models = {
+                "LinearRegression": LinearRegression(),
+                "Ridge": Ridge(),
+                "Lasso": Lasso(),
+                "RandomForest": RandomForestRegressor(n_estimators=100, random_state=42)
+            }
 
-    for model_path in model_files:
-        if model_path in existing_keys:
-            st.info(f"{model_path} already trained and uploaded to S3.")
-        else:
-            st.warning(f"{model_path} not found in S3.")
+            if has_xgb:
+                models["XGBoost"] = XGBRegressor(
+                    n_estimators=100,
+                    random_state=42,
+                    objective='reg:squarederror',
+                    learning_rate=0.1,
+                    max_depth=6,
+                    verbosity=0
+                )
 
-    # Load results.csv from S3 if exists
-    try:
-        obj = s3.get_object(Bucket=S3_BUCKET, Key=f"{MODEL_PREFIX}/results.csv")
-        df_results = pd.read_csv(io.BytesIO(obj['Body'].read()))
-        st.success("✅ Model results found in S3.")
-        st.header("📊 Existing Model Results")
-        subtab1, subtab2 = st.tabs(["📄 Table", "📊 Graph"])
-        with subtab1:
-            st.dataframe(df_results)
-        with subtab2:
-            fig = px.bar(df_results, x="Model", y="CV_R2_Mean", error_y="CV_R2_STD",
-                         title="Model CV R² Comparison", color="Model", text="CV_R2_Mean")
-            st.plotly_chart(fig, use_container_width=True)
-    except Exception as e:
-        st.warning(f"No previous results found: {e}")
+            results = {}
+            for name, model in models.items():
+                model.fit(X_train, y_train)
+                upload_model_to_s3(model, S3_BUCKET, f"{MODEL_PREFIX}/{name}.joblib", is_xgb=(name=="XGBoost"))
+                scores = cross_val_score(model, X_train, y_train, scoring='r2', cv=5)
+                results[name] = {"cv_r2_mean": np.mean(scores), "cv_r2_std": np.std(scores)}
 
-    if st.button("🧠 Train Model"):
-        with st.spinner("Training models... ⏳ Please wait..."):
-            time.sleep(1)
-            st.success("✅ Models trained successfully!")
+            perf_df = pd.DataFrame([{"Model": k, "CV_R2_Mean": v['cv_r2_mean'], "CV_R2_STD": v['cv_r2_std']} for k, v in results.items()])
+            st.success("✅ Models trained and uploaded to S3 successfully!")
+            st.dataframe(perf_df)
 
 # ---------- TAB 2: EVALUATION ----------
 with tab2:
-    st.subheader("📈 Model Visualization & Evaluation")
+    st.subheader("📈 Model Evaluation")
+    X_processed = preprocessor.fit_transform(X)
+    cols = st.columns(2)
 
-    if df is not None:
-        # Show model performance
-        try:
-            obj = s3.get_object(Bucket=S3_BUCKET, Key=f"{MODEL_PREFIX}/results.csv")
-            df_results = pd.read_csv(io.BytesIO(obj['Body'].read()))
-            st.dataframe(df_results)
-            fig = px.bar(df_results, x="Model", y="CV_R2_Mean", error_y="CV_R2_STD",
-                         title="Model CV R² Comparison", color="Model", text="CV_R2_Mean")
-            st.plotly_chart(fig, use_container_width=True)
-        except:
-            st.warning("No model results available.")
+    model_files = ["LinearRegression.joblib", "Ridge.joblib", "Lasso.joblib", "RandomForest.joblib"]
+    if has_xgb:
+        model_files.append("XGBoost.joblib")
 
-        # Evaluate all models
-        model_files = [
-            "BestModel.joblib",
-            "LinearRegression.joblib",
-            "Lasso.joblib",
-            "Ridge.joblib",
-            "RandomForest.joblib",
-            "XGBoost.joblib"
-        ]
+    for idx, model_path in enumerate(model_files):
+        model_name = model_path.replace(".joblib", "")
+        is_xgb = (model_name == "XGBoost")
+        model = load_model_from_s3(S3_BUCKET, f"{MODEL_PREFIX}/{model_path}", is_xgb=is_xgb)
+        if model is None:
+            st.warning(f"{model_name} not found in S3")
+            continue
 
-        st.subheader("📊 Model Evaluation Summary")
-        cols = st.columns(2)
+        y_pred = model.predict(X_processed)
+        metrics = eval_metrics(y, y_pred)
 
-        for idx, model_path in enumerate(model_files):
-            model_name = model_path.replace(".joblib", "")
-            try:
-                is_xgb = "xgboost" in model_name.lower()
-                model = load_model_from_s3(S3_BUCKET, f"{MODEL_PREFIX}/{model_path}", is_xgb=is_xgb)
-                if model is None:
-                    continue
+        with cols[idx % 2]:
+            st.markdown(f"### {model_name}")
+            c1, c2, c3 = st.columns(3)
+            c1.metric("R²", f"{metrics['r2']:.3f}")
+            c2.metric("MAE", f"{metrics['mae']:.2f}")
+            c3.metric("RMSE", f"{metrics['rmse']:.2f}")
 
-                # Apply preprocessing
-                X_processed = preprocessor.fit_transform(X)
+            fig, ax = plt.subplots()
+            sns.scatterplot(x=y, y=y_pred, alpha=0.6, ax=ax)
+            lims = [min(y.min(), y_pred.min()), max(y.max(), y_pred.max())]
+            ax.plot(lims, lims, 'r--')
+            ax.set_xlabel("Actual Revenue")
+            ax.set_ylabel("Predicted Revenue")
+            ax.set_title(f"{model_name} — Actual vs Predicted")
+            st.pyplot(fig)
 
-                if is_xgb:
-                    dmatrix = xgb.DMatrix(X_processed, label=y, enable_categorical=True)
-                    y_pred = model.predict(dmatrix)
-                else:
-                    y_pred = model.predict(X_processed)
-
-                metrics = eval_metrics(y, y_pred)
-
-                with cols[idx % 2]:
-                    st.markdown(f"### {model_name}")
-                    c1, c2, c3 = st.columns(3)
-                    c1.metric("R²", f"{metrics['r2']:.3f}")
-                    c2.metric("MAE", f"{metrics['mae']:.2f}")
-                    c3.metric("RMSE", f"{metrics['rmse']:.2f}")
-
-                    fig, ax = plt.subplots()
-                    sns.scatterplot(x=y, y=y_pred, alpha=0.6, ax=ax)
-                    lims = [min(y.min(), y_pred.min()), max(y.max(), y_pred.max())]
-                    ax.plot(lims, lims, 'r--')
-                    ax.set_xlabel("Actual Revenue")
-                    ax.set_ylabel("Predicted Revenue")
-                    ax.set_title(f"{model_name} — Actual vs Predicted")
-                    st.pyplot(fig)
-
-                if (idx + 1) % 2 == 0 and idx + 1 < len(model_files):
-                    cols = st.columns(2)
-
-            except Exception as e:
-                st.warning(f"⚠️ Could not evaluate {model_name}: {e}")
-            if (idx + 1) % 2 == 0:
-                cols = st.columns(2)
-
+        if (idx + 1) % 2 == 0:
+            cols = st.columns(2)
