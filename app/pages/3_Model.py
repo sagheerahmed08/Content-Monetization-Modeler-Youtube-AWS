@@ -269,6 +269,11 @@ with tab2:
                 X_eval = preprocessor.transform(X)
             else:
                 X_eval = X.copy()
+            st.write("X shape:", X.shape)
+            if 'preprocessor' in globals():
+                X_test = preprocessor.transform(X)
+                st.write("After preprocessing:", X_test.shape)
+
     
             # ✅ Handle categorical encoding for XGBoost if needed
             if is_xgb:
