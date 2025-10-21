@@ -229,14 +229,18 @@ with tab2:
     st.subheader("📈 Model Visualization & Evaluation")
     if df is not None:
         try:
+            tab1, tab2 = st.tabs(["Table", "Chart"])
             obj = s3.get_object(Bucket=S3_BUCKET, Key=f"{MODEL_PREFIX}/results.csv")
             df_results = pd.read_csv(io.BytesIO(obj['Body'].read()))
-            st.dataframe(df_results)
-            fig = px.bar(df_results, x="Model", y="CV_R2_Mean", error_y="CV_R2_STD",
-                         title="Model CV R² Comparison", color="Model",hover_data=["CV_R2_Mean", "CV_R2_STD"], text="CV_R2_Mean")
+            with tab1:
+                st.dataframe(df_results)
+            with tab2:
+                fig = px.bar(df_results, x="Model", y="CV_R2_Mean", error_y="CV_R2_STD",
+                             title="Model CV R² Comparison", color="Model",hover_data=["CV_R2_Mean", "CV_R2_STD"], text="CV_R2_Mean")
             st.plotly_chart(fig, use_container_width=True)
         except:
             st.warning("No model results found.")
+
 
         model_files = [
             "BestModel.joblib",
