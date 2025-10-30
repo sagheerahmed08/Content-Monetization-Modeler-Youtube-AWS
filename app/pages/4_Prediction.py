@@ -103,22 +103,16 @@ with col2:
         step=0.1,
         format="%.2f"
     )
-
+st.divider()
 model_key = f"{MODEL_PREFIX}/{select_model}.joblib"
 model = load_model_from_s3(S3_BUCKET, model_key)
 
 df = user_input_features()
-with st.expander("📊 Feature Insights"):
-    tab1, tab2 = st.tabs(["DataFrame View", "Bar Chart View"])
-    with tab1:
-        st.dataframe(df)
-    with tab2:
-        st.bar_chart(df[['views', 'likes', 'comments', 'watch_time_minutes',
-                         'subscribers', 'engagement_rate', 'avg_watch_time_per_view']].T)
 
-if model and st.button("Predict Ad Revenue", type="secondary", use_container_width=True):
+if model and st.button("Predict Ad Revenue", type="secondary",use_container_width=True):
     pred = model.predict(df)[0]
     pred_inr = pred * usd_to_inr
+    st.success(f"✅ Predicted Ad Revenue : ${pred:,.2f} (≈ ₹{pred_inr:,.2f})")
     df["ad_revenue_usd"] = pred
     df["ad_revenue_inr"] = pred_inr
     df["Timestamp"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -177,25 +171,32 @@ if model and st.button("Predict Ad Revenue", type="secondary", use_container_wid
         file_name="prediction.csv",
         mime="text/csv"
     )
-
 st.divider()
-st.subheader("🧾 Prediction Log Records (Stored in S3)")
 
-try:
-    if "prediction_data" not in st.session_state:
-        obj = s3.get_object(Bucket=S3_BUCKET, Key=PREDICTION_KEY)
-        st.session_state["prediction_data"] = pd.read_csv(io.BytesIO(obj["Body"].read()))
-    st.dataframe(st.session_state["prediction_data"], use_container_width=True, hide_index=True)
-except Exception:
-    st.info("No prediction records found yet.")
+with st.expander("📊 Feature Insights"):
+    tab1, tab2 = st.tabs(["DataFrame View", "Bar Chart View"])
+    with tab1:
+        st.dataframe(df)
+    with tab2:
+        st.bar_chart(df[['views', 'likes', 'comments', 'watch_time_minutes',
+                         'subscribers', 'engagement_rate', 'avg_watch_time_per_view']].T)
+with st.expander("🧾 Prediction Log Records (Stored in S3)"):
 
-if st.button("🗑️ Confirm Delete All Prediction Records from S3"):
     try:
-        s3.delete_object(Bucket=S3_BUCKET, Key=PREDICTION_KEY)
-        st.session_state.pop("prediction_data", None)
-        st.success("✅ All prediction records deleted from S3.")
-    except Exception as e:
-        st.error(f"❌ Failed to delete records: {e}")
+        if "prediction_data" not in st.session_state:
+            obj = s3.get_object(Bucket=S3_BUCKET, Key=PREDICTION_KEY)
+            st.session_state["prediction_data"] = pd.read_csv(io.BytesIO(obj["Body"].read()))
+        st.dataframe(st.session_state["prediction_data"], use_container_width=True, hide_index=True)
+    except Exception:
+        st.info("No prediction records found yet.")
+
+    if st.button("🗑️ Confirm Delete All Prediction Records from S3"):
+        try:
+            s3.delete_object(Bucket=S3_BUCKET, Key=PREDICTION_KEY)
+            st.session_state.pop("prediction_data", None)
+            st.success("✅ All prediction records deleted from S3.")
+        except Exception as e:
+            st.error(f"❌ Failed to delete records: {e}")
 
 with st.expander("📈 Model Performance Comparison"):
     try:
