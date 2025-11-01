@@ -148,3 +148,11 @@ fsspec==2025.9.0
 s3fs==2025.9.0
 statsmodels
 ```
+---
+## 👨‍💻 Author
+
+**Sagheer Ahmed**  
+🔗 **GitHub:** [@sagheerahmed08](https://github.com/sagheerahmed08)  
+📂 **Project Link:** [Content-Monetization-Modeler-Youtube-AWS](https://github.com/sagheerahmed08/Content-Monetization-Modeler-Youtube-AWS)  
+🌐 **Live Demo:** [Streamlit App](https://content-monetization-modeler-youtube-aws.streamlit.app/)
+
