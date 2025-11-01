@@ -4,8 +4,7 @@
 [![scikit-learn](https://img.shields.io/badge/scikit--learn-1.7.2-F7931E?logo=scikit-learn)](https://scikit-learn.org/)
 [![XGBoost](https://img.shields.io/badge/XGBoost-Latest-EC4D37?logo=xgboost)](https://xgboost.ai/)
 [![AWS S3](https://img.shields.io/badge/AWS-S3-FF9900?logo=amazon-aws)](https://aws.amazon.com/s3/)
-[![Deployed on AWS EC2](https://img.shields.io/badge/Deployed-AWS%20EC2-FF9900?logo=amazon-ec2)]
-[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+
 
 ---
 The **Content Monetization Modeler** is a data-driven web application that predicts YouTube creators’ **ad revenue** using engagement metrics such as views, likes, comments, watch time, and subscribers.  
