@@ -92,7 +92,7 @@ def user_input_features():
     subs = col3.number_input("Subscribers", min_value=0, max_value=10_000_000, value=10000)
     category = col1.selectbox("Category", ["Entertainment", "Gaming", "Education", "Music", "News"])
     device = col2.selectbox("Device", ["Mobile", "Tablet", "TV", "Desktop"])
-    country = col3.selectbox("Country", ["IN", "US", "CA", "UK"])
+    country = col3.selectbox("Country", list(COUNTRY_CURRENCY.keys()))
 
     df = pd.DataFrame({
         "views": [views],
@@ -158,6 +158,8 @@ errors = validate_inputs(df)
 for err in errors:
     st.error(err)
 
+results_df = load_results_from_s3()
+
 if not errors and model:
     if select_model in LINEAR_MODELS:
         st.caption(
@@ -200,8 +202,6 @@ if not errors and model:
         unsafe_allow_html=True,
     )
 
-    # Confidence interval from stored RMSE
-    results_df = load_results_from_s3()
     rmse = None
     if results_df is not None:
         lookup_name = select_model
@@ -243,7 +243,6 @@ if not errors and model:
 # ─── Model Performance Comparison ────────────────────────────────────────────
 st.subheader("📈 Model Performance Comparison")
 
-results_df = load_results_from_s3()
 if results_df is not None:
     st.dataframe(results_df, use_container_width=True, hide_index=True)
     fig = px.bar(

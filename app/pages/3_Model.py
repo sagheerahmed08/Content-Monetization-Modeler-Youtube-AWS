@@ -123,7 +123,7 @@ with tab1:
         st.subheader("Train Model")
 
         response = s3.list_objects_v2(Bucket=S3_BUCKET, Prefix=MODEL_PREFIX)
-        existing_keys = [item['Key'] for item in response.get('Contents', [])] if 'Contents' in response else []
+        existing_keys = [item['Key'] for item in response.get('Contents', [])]
 
         model_files = [
             f"{MODEL_PREFIX}/RandomForest.joblib",

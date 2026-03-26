@@ -121,15 +121,17 @@ with tab4:
             st.plotly_chart(fig6, use_container_width=True)
 
 with tab5:
-    cats = raw_df["category"].unique()
+    cols_of_interest = ["likes", "comments", "watch_time_minutes"]
+    raw_miss = raw_df.groupby("category")[cols_of_interest].apply(lambda x: x.isna().sum())
+    clean_miss = clean_df.groupby("category")[cols_of_interest].apply(lambda x: x.isna().sum())
     missing_detail = pd.DataFrame({
-        "Category": cats,
-        "Raw Missing (likes)": [raw_df[raw_df["category"] == c]["likes"].isna().sum() for c in cats],
-        "Clean Missing (likes)": [clean_df[clean_df["category"] == c]["likes"].isna().sum() for c in cats],
-        "Raw Missing (comments)": [raw_df[raw_df["category"] == c]["comments"].isna().sum() for c in cats],
-        "Clean Missing (comments)": [clean_df[clean_df["category"] == c]["comments"].isna().sum() for c in cats],
-        "Raw Missing (watch time)": [raw_df[raw_df["category"] == c]["watch_time_minutes"].isna().sum() for c in cats],
-        "Clean Missing (watch time)": [clean_df[clean_df["category"] == c]["watch_time_minutes"].isna().sum() for c in cats],
+        "Category": raw_miss.index,
+        "Raw Missing (likes)": raw_miss["likes"].values,
+        "Clean Missing (likes)": clean_miss["likes"].values,
+        "Raw Missing (comments)": raw_miss["comments"].values,
+        "Clean Missing (comments)": clean_miss["comments"].values,
+        "Raw Missing (watch time)": raw_miss["watch_time_minutes"].values,
+        "Clean Missing (watch time)": clean_miss["watch_time_minutes"].values,
     })
     total_row = missing_detail.drop(columns="Category").sum().to_frame().T
     total_row.insert(0, "Category", "Total")
