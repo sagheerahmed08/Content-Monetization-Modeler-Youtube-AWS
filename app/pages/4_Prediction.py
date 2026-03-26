@@ -9,7 +9,7 @@ import plotly.express as px
 import requests
 from datetime import datetime
 
-from config import S3_BUCKET, CLEAN_KEY, MODEL_PREFIX
+from config import S3_BUCKET, CLEAN_KEY, MODEL_PREFIX, PREDICTION_KEY
 
 try:
     _xgb = importlib.import_module("xgboost")
@@ -160,7 +160,9 @@ for err in errors:
 
 results_df = load_results_from_s3()
 
-if not errors and model:
+predict_clicked = st.button("📊 Predict Now", type="primary", use_container_width=True, disabled=bool(errors))
+
+if predict_clicked and not errors and model:
     if select_model in LINEAR_MODELS:
         st.caption(
             "ℹ️ Linear models assume a straight-line relationship between features "
@@ -225,14 +227,29 @@ if not errors and model:
             "subscribers", "engagement_rate", "avg_watch_time_per_view"]].T
     )
 
-    # Export CSV
+    # Build export row
     export_df = df.copy()
     export_df["predicted_revenue_usd"] = pred
     export_df[f"predicted_revenue_{currency_code.lower()}"] = pred_local
     export_df["model_used"] = select_model
     export_df["timestamp"] = datetime.now().isoformat()
-    csv_data = export_df.to_csv(index=False).encode("utf-8")
 
+    # Append prediction to S3 log
+    try:
+        try:
+            existing = pd.read_csv(io.BytesIO(
+                s3.get_object(Bucket=S3_BUCKET, Key=PREDICTION_KEY)["Body"].read()
+            ))
+            log_df = pd.concat([existing, export_df], ignore_index=True)
+        except s3.exceptions.NoSuchKey:
+            log_df = export_df
+        buf = io.StringIO()
+        log_df.to_csv(buf, index=False)
+        s3.put_object(Bucket=S3_BUCKET, Key=PREDICTION_KEY, Body=buf.getvalue())
+    except Exception:
+        pass  # logging failure should never block the user
+
+    csv_data = export_df.to_csv(index=False).encode("utf-8")
     st.download_button(
         "📥 Download Prediction Data",
         data=csv_data,
