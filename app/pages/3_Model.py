@@ -81,7 +81,7 @@ def eval_metrics(y_true, y_pred):
     }
 
 
-def show_results_table_and_chart(df_results):
+def show_results_table_and_chart(df_results, key_suffix=""):
     """Render a two-tab Table/Chart view for model results."""
     t1, t2 = st.tabs(["Table", "Chart"])
     with t1:
@@ -89,7 +89,7 @@ def show_results_table_and_chart(df_results):
     with t2:
         fig = px.bar(df_results, x="Model", y="CV_R2_Mean", error_y="CV_R2_STD",
                      title="Model CV R² Comparison", color="Model", text="CV_R2_Mean")
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, use_container_width=True, key=f"results_chart_{key_suffix}")
 
 
 tab1, tab2 = st.tabs(["Model Training", "Model Visualization"])
@@ -144,7 +144,7 @@ with tab1:
         df_results = load_results_from_s3()
         if df_results is not None:
             st.success("Model results found in S3.")
-            show_results_table_and_chart(df_results)
+            show_results_table_and_chart(df_results, key_suffix="tab1")
         else:
             st.info("No previous model results found.")
 
@@ -273,7 +273,7 @@ with tab2:
 
         df_results = load_results_from_s3()
         if df_results is not None:
-            show_results_table_and_chart(df_results)
+            show_results_table_and_chart(df_results, key_suffix="tab2")
 
             try:
                 fig = px.scatter(df_results, x="RMSE", y="CV_R2_Mean", color="Model",
