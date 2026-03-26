@@ -1,13 +1,15 @@
 import streamlit as st
 import pandas as pd
+import numpy as np
 import joblib
-import requests
 import importlib
 import io
 import boto3
 import plotly.express as px
-import os
+import requests
 from datetime import datetime
+
+from config import S3_BUCKET, CLEAN_KEY, MODEL_PREFIX
 
 try:
     _xgb = importlib.import_module("xgboost")
@@ -16,60 +18,81 @@ try:
 except Exception:
     has_xgb = False
 
+LINEAR_MODELS = {"LinearRegression", "Ridge", "Lasso", "PassiveAggressiveRegressor"}
+MAX_RPM = 20.0  # Maximum realistic revenue per 1000 views (USD)
+
+COUNTRY_CURRENCY = {
+    "IN": ("INR", "₹"),
+    "US": ("USD", "$"),
+    "UK": ("GBP", "£"),
+    "CA": ("CAD", "CA$"),
+}
+
 st.set_page_config(
     page_title="Prediction | YouTube Ad Revenue Predictor",
     page_icon="📊",
-    layout="wide"
+    layout="wide",
 )
 st.title("📊 Predict YouTube Ad Revenue")
-
-S3_BUCKET = "youtube-ad-revenue-app-sagheer"
-CLEAN_KEY = "Data/Cleaned/youtube_ad_revenue_dataset_cleaned.csv"
-MODEL_PREFIX = "models"
-PREDICTION_KEY = "logs/prediction.csv"
 
 s3 = boto3.client(
     "s3",
     aws_access_key_id=st.secrets["aws"]["aws_access_key_id"],
     aws_secret_access_key=st.secrets["aws"]["aws_secret_access_key"],
-    region_name="eu-north-1"
+    region_name=st.secrets["aws"]["region"],
 )
 
+
 @st.cache_data(ttl=3600)
-def get_usd_to_inr():
-    """Fetch real-time USD→INR conversion rate (with fallback)."""
+def get_exchange_rates():
+    """Fetch live USD exchange rates; fall back to hardcoded defaults."""
     try:
         res = requests.get(
             "https://v6.exchangerate-api.com/v6/01dd1651e64cb8df5a89b465/latest/USD"
         ).json()
-        INR = res.get("conversion_rates", {}).get("INR", 88.70)
-        return INR
+        rates = res.get("conversion_rates", {})
+        return {
+            "INR": rates.get("INR", 88.70),
+            "GBP": rates.get("GBP", 0.79),
+            "CAD": rates.get("CAD", 1.36),
+            "USD": 1.0,
+        }
     except Exception:
-        return 88.70
-    
+        return {"INR": 88.70, "GBP": 0.79, "CAD": 1.36, "USD": 1.0}
+
+
 @st.cache_resource
 def load_model_from_s3(bucket, key):
-    """Load model from S3 and cache it in memory."""
+    """Load a joblib model from S3; cached across reruns."""
     try:
         obj = s3.get_object(Bucket=bucket, Key=key)
-        model_bytes = io.BytesIO(obj["Body"].read())
-        model = joblib.load(model_bytes)
-        return model
+        return joblib.load(io.BytesIO(obj["Body"].read()))
     except Exception as e:
-        st.error(f"❌ Failed to load model from S3: {e}")
+        st.error(f"Failed to load model from S3: {e}")
         return None
+
+
+@st.cache_data
+def load_results_from_s3():
+    """Load model comparison results CSV from S3."""
+    try:
+        obj = s3.get_object(Bucket=S3_BUCKET, Key=f"{MODEL_PREFIX}/results.csv")
+        return pd.read_csv(io.BytesIO(obj["Body"].read()))
+    except Exception:
+        return None
+
 
 def user_input_features():
     col1, col2, col3 = st.columns(3)
-    views = col1.number_input("Views", 0, 10_000_000, 10_000)
-    likes = col2.number_input("Likes", 0, 1_000_000, 500)
-    comments = col3.number_input("Comments", 0, 1_000_000, 50)
-    watch_time = col1.number_input("Watch Time (min)", 0.0, 1_000_000.0, 2000.0)
-    length = col2.number_input("Video Length (min)", 0.1, 120.0, 10.0)
-    subs = col3.number_input("Subscribers", 0, 10_000_000, 10000)
-    category = col1.selectbox("Category", ["Entertainment", "Gaming", "Education", "Music", "Lifestyle", "Tech"])
+    views = col1.number_input("Views", min_value=0, max_value=10_000_000, value=10_000)
+    likes = col2.number_input("Likes", min_value=0, max_value=1_000_000, value=500)
+    comments = col3.number_input("Comments", min_value=0, max_value=1_000_000, value=50)
+    watch_time = col1.number_input("Watch Time (min)", min_value=0.0, max_value=1_000_000.0, value=2000.0)
+    length = col2.number_input("Video Length (min)", min_value=0.1, max_value=120.0, value=10.0)
+    subs = col3.number_input("Subscribers", min_value=0, max_value=10_000_000, value=10000)
+    category = col1.selectbox("Category", ["Entertainment", "Gaming", "Education", "Music", "News"])
     device = col2.selectbox("Device", ["Mobile", "Tablet", "TV", "Desktop"])
-    country = col3.selectbox("Country", ["IN", "US", "CA", "UK", "AU", "DE"])
+    country = col3.selectbox("Country", ["IN", "US", "CA", "UK"])
 
     df = pd.DataFrame({
         "views": [views],
@@ -86,50 +109,80 @@ def user_input_features():
     df["avg_watch_time_per_view"] = df["watch_time_minutes"] / df["views"].replace(0, 1)
     return df
 
-col1, col2 = st.columns(2)
-with col1:
-    select_model = st.selectbox(
-        "Select Model",
-        ["BestModel", "LinearRegression", "Ridge", "Lasso", "RandomForest", "XGBoost"],
-        key="model_select"
-    )
-with col2:
-    conversion_rate = get_usd_to_inr()
-    usd_to_inr = st.number_input(
-        "USD to INR Conversion Rate",
-        min_value=50.0,
-        max_value=150.0,
-        value=conversion_rate,
-        step=0.1,
-        format="%.2f"
-    )
-st.divider()
-model_key = f"{MODEL_PREFIX}/{select_model}.joblib"
-model = load_model_from_s3(S3_BUCKET, model_key)
+
+def validate_inputs(df):
+    """Return list of validation error messages; empty list means valid."""
+    errors = []
+    row = df.iloc[0]
+    if row["views"] < 0:
+        errors.append("Views cannot be negative.")
+    if row["likes"] < 0:
+        errors.append("Likes cannot be negative.")
+    if row["comments"] < 0:
+        errors.append("Comments cannot be negative.")
+    if row["watch_time_minutes"] < 0:
+        errors.append("Watch time cannot be negative.")
+    if row["video_length_minutes"] <= 0:
+        errors.append("Video length must be greater than 0.")
+    if row["subscribers"] < 0:
+        errors.append("Subscribers cannot be negative.")
+    if row["views"] > 0 and row["likes"] > row["views"]:
+        errors.append("Likes cannot exceed views.")
+    return errors
+
+
+def apply_revenue_cap(raw_pred, views):
+    """Cap prediction to physics-based maximum: MAX_RPM per 1000 views."""
+    cap = views * MAX_RPM / 1000.0
+    return float(np.clip(raw_pred, 0.0, max(cap, 0.01)))
+
+
+# ─── Main ────────────────────────────────────────────────────────────────────
+exchange_rates = get_exchange_rates()
+st.success(f"💱 Current Exchange Rate: 1 USD = ₹{exchange_rates['INR']:.2f} INR")
+
+select_model = st.selectbox(
+    "Select Model",
+    ["BestModel", "LinearRegression", "Ridge", "Lasso",
+     "PassiveAggressiveRegressor", "RandomForest", "XGBoost"],
+    key="model_select",
+)
+
+model = load_model_from_s3(S3_BUCKET, f"{MODEL_PREFIX}/{select_model}.joblib")
 
 df = user_input_features()
+st.subheader("📋 Input Features")
+st.dataframe(df, use_container_width=True, hide_index=True)
 
-if model and st.button("Predict Ad Revenue", type="secondary",use_container_width=True):
-    pred = model.predict(df)[0]
-    pred_inr = pred * usd_to_inr
-    st.success(f"✅ Predicted Ad Revenue : ${pred:,.2f} (≈ ₹{pred_inr:,.2f})")
-    df["ad_revenue_usd"] = pred
-    df["ad_revenue_inr"] = pred_inr
-    df["Timestamp"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    #make Timestamp column as first column
-    cols = df.columns.tolist()
-    cols = [cols[-1]] + cols[:-1]
-    df = df[cols]   
-    
-    st.subheader("📋 Input Features & Prediction")
-    st.dataframe(df, use_container_width=True, hide_index=True)
-    st.success(f"Predicted Ad Revenue: ₹{pred_inr:,.2f} (≈ ${pred:,.2f})")
+errors = validate_inputs(df)
+for err in errors:
+    st.error(err)
 
-    # Summary Metrics
+if not errors and model:
+    if select_model in LINEAR_MODELS:
+        st.caption(
+            "ℹ️ Linear models assume a straight-line relationship between features "
+            "and revenue. Tree-based models (RandomForest, XGBoost) are typically more accurate."
+        )
+
+    raw_pred = model.predict(df)[0]
+    views_val = int(df["views"].iloc[0])
+    pred = apply_revenue_cap(raw_pred, views_val)
+
+    country_val = df["country"].iloc[0]
+    currency_code, currency_sym = COUNTRY_CURRENCY.get(country_val, ("USD", "$"))
+    rate = exchange_rates.get(currency_code, 1.0)
+    pred_local = pred * rate
+
+    st.success(
+        f"Predicted Ad Revenue: {currency_sym}{pred_local:,.2f} ({currency_code}) "
+        f"≈ ${pred:,.2f} USD"
+    )
+
     col1, col2, col3, col4 = st.columns(4)
-    col1.metric("👀 Views", int(df['views'].iloc[0]))
-    col2.metric("👍 Likes", int(df['likes'].iloc[0]))
-    col3.metric("⏱ Watch Time", f"{df['watch_time_minutes'].iloc[0]} min")
+    col1.metric("👀 Views", f"{views_val:,}")
+    col2.metric("👍 Likes", f"{int(df['likes'].iloc[0]):,}")
+    col3.metric("⏱ Watch Time", f"{df['watch_time_minutes'].iloc[0]:.0f} min")
     col4.markdown(
         f"""
         <div style="
@@ -140,78 +193,67 @@ if model and st.button("Predict Ad Revenue", type="secondary",use_container_widt
             text-align:center;
             font-size:1.2em;
             font-weight:bold;">
-            💰 Predicted Revenue<br>₹{pred_inr:,.2f}
-            <span style="font-size:0.8em;">(${pred:,.2f})</span>
+            💰 Predicted Revenue<br>{currency_sym}{pred_local:,.2f}
+            <span style="font-size:0.8em;">(${pred:,.2f} USD)</span>
         </div>
         """,
-        unsafe_allow_html=True
+        unsafe_allow_html=True,
     )
 
-    try:
-        obj = s3.get_object(Bucket=S3_BUCKET, Key=PREDICTION_KEY)
-        prev_df = pd.read_csv(io.BytesIO(obj["Body"].read()))
-        combined_df = pd.concat([prev_df, df], ignore_index=True)
-    except s3.exceptions.NoSuchKey:
-        combined_df = df
-    except Exception as e:
-        st.warning(f"⚠️ Could not load previous data: {e}")
-        combined_df = df
+    # Confidence interval from stored RMSE
+    results_df = load_results_from_s3()
+    rmse = None
+    if results_df is not None:
+        lookup_name = select_model
+        if select_model == "BestModel" and "BestModel" not in results_df["Model"].values:
+            lookup_name = results_df.loc[results_df["CV_R2_Mean"].idxmax(), "Model"]
+        match = results_df[results_df["Model"] == lookup_name]
+        if not match.empty:
+            rmse = float(match["RMSE"].iloc[0])
 
-    # Upload updated file to S3
-    csv_buffer = io.StringIO()
-    combined_df.to_csv(csv_buffer, index=False)
-    s3.put_object(Bucket=S3_BUCKET, Key=PREDICTION_KEY, Body=csv_buffer.getvalue())
-    st.session_state["prediction_data"] = combined_df
+    if rmse is not None:
+        lo_local = max(0.0, pred - rmse) * rate
+        hi_local = (pred + rmse) * rate
+        st.info(
+            f"95% Confidence Range: {currency_sym}{lo_local:,.2f} – "
+            f"{currency_sym}{hi_local:,.2f}  (±1 RMSE = ${rmse:,.2f})"
+        )
 
-    # Download button
-    csv_data = combined_df.to_csv(index=False).encode("utf-8")
+    st.subheader("📊 Feature Insights")
+    st.bar_chart(
+        df[["views", "likes", "comments", "watch_time_minutes",
+            "subscribers", "engagement_rate", "avg_watch_time_per_view"]].T
+    )
+
+    # Export CSV
+    export_df = df.copy()
+    export_df["predicted_revenue_usd"] = pred
+    export_df[f"predicted_revenue_{currency_code.lower()}"] = pred_local
+    export_df["model_used"] = select_model
+    export_df["timestamp"] = datetime.now().isoformat()
+    csv_data = export_df.to_csv(index=False).encode("utf-8")
+
     st.download_button(
-        "📥 Download All Prediction Records (from S3)",
+        "📥 Download Prediction Data",
         data=csv_data,
         file_name="prediction.csv",
-        mime="text/csv"
+        mime="text/csv",
     )
-st.divider()
 
-with st.expander("📊 Feature Insights"):
-    tab1, tab2 = st.tabs(["DataFrame View", "Bar Chart View"])
-    with tab1:
-        st.dataframe(df)
-    with tab2:
-        st.bar_chart(df[['views', 'likes', 'comments', 'watch_time_minutes',
-                         'subscribers', 'engagement_rate', 'avg_watch_time_per_view']].T)
-with st.expander("🧾 Prediction Log Records (Stored in S3)"):
+# ─── Model Performance Comparison ────────────────────────────────────────────
+st.subheader("📈 Model Performance Comparison")
 
-    try:
-        if "prediction_data" not in st.session_state:
-            obj = s3.get_object(Bucket=S3_BUCKET, Key=PREDICTION_KEY)
-            st.session_state["prediction_data"] = pd.read_csv(io.BytesIO(obj["Body"].read()))
-        st.dataframe(st.session_state["prediction_data"], use_container_width=True, hide_index=True)
-    except Exception:
-        st.info("No prediction records found yet.")
-
-    if st.button("🗑️ Confirm Delete All Prediction Records from S3"):
-        try:
-            s3.delete_object(Bucket=S3_BUCKET, Key=PREDICTION_KEY)
-            st.session_state.pop("prediction_data", None)
-            st.success("✅ All prediction records deleted from S3.")
-        except Exception as e:
-            st.error(f"❌ Failed to delete records: {e}")
-
-with st.expander("📈 Model Performance Comparison"):
-    try:
-        obj = s3.get_object(Bucket=S3_BUCKET, Key=f"{MODEL_PREFIX}/results.csv")
-        perf_df = pd.read_csv(io.BytesIO(obj["Body"].read()))
-        st.dataframe(perf_df, use_container_width=True, hide_index=True)
-
-        fig = px.bar(
-            perf_df,
-            x="Model",
-            y="CV_R2_Mean",
-            error_y="CV_R2_STD",
-            title="Model Cross-Validation R² Comparison",
-            text="CV_R2_Mean"
-        )
-        st.plotly_chart(fig, use_container_width=True)
-    except Exception as e:
-        st.info(f"ℹ️ Model performance data not found or cannot be accessed.\n{e}")
+results_df = load_results_from_s3()
+if results_df is not None:
+    st.dataframe(results_df, use_container_width=True, hide_index=True)
+    fig = px.bar(
+        results_df,
+        x="Model",
+        y="CV_R2_Mean",
+        error_y="CV_R2_STD",
+        title="Model Cross-Validation R² Comparison",
+        text="CV_R2_Mean",
+    )
+    st.plotly_chart(fig, use_container_width=True)
+else:
+    st.info("ℹ️ No model performance data found. Train models on the Model page first.")

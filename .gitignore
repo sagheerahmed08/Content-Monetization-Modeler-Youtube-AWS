@@ -1,1 +1,25 @@
-app/models/*.joblib
+# Models (stored in AWS S3, not git)
+model/
+app/models/
+**/*.pkl
+**/*.joblib
+
+# Secrets - NEVER commit
+.streamlit/secrets.toml
+
+# Python cache
+__pycache__/
+**/__pycache__/
+*.pyc
+*.pyo
+
+# Test cache
+.pytest_cache/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db

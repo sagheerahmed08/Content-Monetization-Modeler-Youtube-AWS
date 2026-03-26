@@ -1,158 +1,189 @@
-# 🎬 Content Monetization Modeler (YouTube Revenue Prediction)
-[![Python](https://img.shields.io/badge/Python-3.13-3776AB?logo=python)](https://www.python.org/)
+# Content Monetization Modeler — YouTube Ad Revenue Predictor
+
+[![Python](https://img.shields.io/badge/Python-3.10+-3776AB?logo=python)](https://www.python.org/)
 [![Streamlit](https://img.shields.io/badge/Streamlit-1.47.1-FF4B4B?logo=streamlit)](https://streamlit.io/)
 [![scikit-learn](https://img.shields.io/badge/scikit--learn-1.7.2-F7931E?logo=scikit-learn)](https://scikit-learn.org/)
-[![XGBoost](https://img.shields.io/badge/XGBoost-Latest-EC4D37?logo=xgboost)](https://xgboost.ai/)
 [![AWS S3](https://img.shields.io/badge/AWS-S3-FF9900?logo=amazon-aws)](https://aws.amazon.com/s3/)
 
-
----
-The **Content Monetization Modeler** is a data-driven web application that predicts YouTube creators’ **ad revenue** using engagement metrics such as views, likes, comments, watch time, and subscribers.  
-It enables creators and analysts to forecast monetization potential, visualize key patterns, and track performance over time — all through an interactive Streamlit interface.
+A production-grade Streamlit application that predicts YouTube ad revenue using machine learning models trained on engagement metrics. Built with AWS S3 for model and data storage, scikit-learn pipelines for reproducible training, and automated hyperparameter tuning.
 
 ---
 
-## 🚀 Key Features
-- **Interactive EDA**: Analyze engagement metrics and correlations.
-- **ML Model Training**: Train multiple models (Linear, Ridge, Lasso, Random Forest, XGBoost) and auto-select the best one.
-- **Prediction Module**: Upload data and predict revenue in USD & INR.
-- **AWS Integration**:
-  - Load and store datasets, models, and logs directly in **S3**.
-  - Append and store predictions (`prediction.csv`) automatically.
-- **Cloud Deployment**: Hosted on **AWS EC2 (Ubuntu 22.04)** for browser-based access.
+## Live App
+
+Deployed on Streamlit Community Cloud — models and data stored on AWS S3 (no local files required).
 
 ---
 
-## 🧠 Tech Stack
+## Features
 
-### **Languages & Libraries**
-| Category | Tools / Libraries |
-|-----------|------------------|
-| Core Language | Python 3.13 |
-| Web Framework | Streamlit |
-| Machine Learning | scikit-learn, xgboost, joblib |
-| Data Handling | pandas, numpy |
-| Visualization | matplotlib, seaborn, plotly |
-| AWS SDK | boto3, aiobotocore, awscli |
-| Cloud Storage | AWS S3 |
-| Statistical Tools | statsmodels |
-| Utilities | requests, s3fs, fsspec |
+- **EDA Page** — Missing value heatmaps, correlation matrix, distribution plots, outlier detection, key revenue driver insights
+- **Model Training** — Automated RidgeCV/LassoCV hyperparameter tuning, 6-model comparison (LinearRegression, Ridge, Lasso, PassiveAggressiveRegressor, RandomForest, XGBoost), cross-validation R² ranking, automatic best model selection, S3 upload
+- **Feature Importance** — Horizontal bar chart for tree (`feature_importances_`) and linear (`|coef_|` normalized) models
+- **Revenue Prediction** — Physics-based revenue cap (`MAX_RPM = $20/1000 views`), ±1 RMSE confidence interval, per-country currency display (INR/USD/GBP/CAD), live exchange rates, input validation, CSV export
+- **CI/CD** — GitHub Actions runs pytest on every push to main
 
 ---
 
-## 🧩 Machine Learning Models Used
-- **Linear Regression**
-- **Ridge Regression**
-- **Lasso Regression**
-- **Random Forest Regressor**
-- **XGBoost Regressor**
+## Architecture
 
-The system compares model performance using R², MSE, and RMSE, and selects the **best model** automatically (`BestModel.joblib`).
-
----
-
-## ☁️ AWS Setup
-
-### 1. **S3 Bucket Structure**
 ```
-youtube-ad-revenue-app-sagheer/
-  ├── app/
-     ├── Data/
-        ├── Cleaned/
-          └── youtube_ad_revenue_dataset_cleaned.csv
-        ├── Raw/
-          └── youtube_ad_revenue_dataset.csv
-    ├── logs/
-       └── prediction.csv
-    └── models/
-      ├── BestModel.joblib
-      ├── LinearRegression.joblib
-      ├── Ridge.joblib
-      ├── Lasso.joblib
-      ├── RandomForest.joblib
-      ├── XGBoost.joblib
-      └── results.csv
+User Browser
+    │
+    ▼
+Streamlit App (4 pages)
+    │
+    ├── AWS S3 ── Raw CSV / Cleaned CSV / Model .joblib / results.csv
+    └── ExchangeRate API (live USD → INR / GBP / CAD)
 ```
 
-### 2. **IAM User Setup**
-Create an IAM user with the following permissions:
-- `AmazonS3FullAccess`
-- `IAMUserChangePassword`
+**Data flow:**
+1. Raw CSV → preprocessing pipeline (dedup, imputation, feature engineering) → cleaned CSV saved to S3
+2. Model Training page loads cleaned CSV, trains all models with CV tuning, uploads each `.joblib` + `results.csv` to S3
+3. Prediction page loads selected model from S3, applies physics-based revenue cap, shows confidence interval
 
-Generate **Access Key ID** and **Secret Access Key**, then configure locally:
+---
+
+## Tech Stack
+
+| Layer | Technology |
+|---|---|
+| Frontend | Streamlit 1.47 |
+| ML | scikit-learn 1.7, XGBoost 3.0 |
+| Data | pandas, numpy, scipy |
+| Visualisation | Plotly, Matplotlib, Seaborn |
+| Storage | AWS S3 (boto3) |
+| CI/CD | GitHub Actions (pytest on push) |
+| Tests | pytest (21 unit tests) |
+
+---
+
+## Project Structure
+
+```
+app/
+├── 1_Home.py                   # Landing page
+├── pages/
+│   ├── 2_EDA.py                # Exploratory Data Analysis
+│   ├── 3_Model.py              # Model training & visualization
+│   └── 4_Prediction.py         # Revenue prediction
+├── preprocessing.py            # Data cleaning pipeline
+├── config.py                   # S3 bucket / key constants
+├── requirements.txt
+└── tests/
+    ├── test_preprocessing.py   # 7 tests for preprocessing logic
+    └── test_prediction_logic.py # 14 tests for validation & revenue cap
+.github/workflows/tests.yml     # CI: run pytest on push to main
+reference/                      # Legacy scripts (not part of app)
+```
+
+---
+
+## Setup
+
+### Prerequisites
+
+- Python 3.10+
+- AWS account with an S3 bucket
+- Streamlit Community Cloud account (for deployment)
+
+### Local Development
+
 ```bash
-aws configure
-```
-
-## 🖥️ Folder Structure (GitHub Repo)
-```
-Content-Monetization-Modeler-Youtube-AWS-main/
-├── .gitignore
-├── README.md
-├── app/
-  ├── 1_Home.py
-  ├── preprocessing.py
-  ├── requirements.txt
-  └── pages/
-        ├── 2_EDA.py
-        ├── 3_Model.py
-        └── 4_Prediction.py
-└── .devcontainer/
-    └── devcontainer.json
-```
-
-## ⚙️ Installation & Setup
-
-###1️⃣ Clone the Repository
-```
-git clone https://github.com/yourusername/Content-Monetization-Modeler-Youtube-AWS.git
+git clone https://github.com/sagheerahmed08/Content-Monetization-Modeler-Youtube-AWS
 cd Content-Monetization-Modeler-Youtube-AWS/app
-```
 
-###2️⃣ Install Dependencies
-```
 pip install -r requirements.txt
+
+# Create Streamlit secrets file
+mkdir -p .streamlit
+cat > .streamlit/secrets.toml << 'EOF'
+[aws]
+aws_access_key_id = "YOUR_KEY"
+aws_secret_access_key = "YOUR_SECRET"
+region = "eu-north-1"
+EOF
+
+streamlit run 1_Home.py
 ```
 
-### requirements.txt
+### AWS S3 Structure
+
 ```
-# Data handling
-pandas==2.3.1
-numpy==2.2.6
-
-# Machine Learning
-scikit-learn==1.7.2
-joblib==1.5.2
-xgboost
-
-# Visualization
-matplotlib==3.10.5
-seaborn==0.13.2
-plotly==6.3.1
-
-# Web app
-streamlit==1.47.1
-
-# AWS
-aiohttp==3.13.1
-aioitertools==0.12.0
-aiosignal==1.4.0
-boto3
-aiobotocore
-botocore
-awscli
-
-# Utilities
-requests==2.32.4
-fsspec==2025.9.0
-s3fs==2025.9.0
-statsmodels
+s3://your-bucket/
+├── Data/
+│   ├── Raw/youtube_ad_revenue_dataset.csv
+│   └── Cleaned/youtube_ad_revenue_dataset_cleaned.csv
+└── models/
+    ├── BestModel.joblib
+    ├── LinearRegression.joblib
+    ├── Ridge.joblib
+    ├── Lasso.joblib
+    ├── PassiveAggressiveRegressor.joblib
+    ├── RandomForest.joblib
+    ├── XGBoost.joblib
+    └── results.csv
 ```
+
+Update `app/config.py` with your bucket name. Models are populated automatically after clicking "Train Model".
+
+### Running Tests
+
+```bash
+cd app
+pytest tests/ -v
+```
+
 ---
-## 👨‍💻 Author
 
-**Sagheer Ahmed**  
-🔗 **GitHub:** [@sagheerahmed08](https://github.com/sagheerahmed08)  
-📂 **Project Link:** [Content-Monetization-Modeler-Youtube-AWS](https://github.com/sagheerahmed08/Content-Monetization-Modeler-Youtube-AWS)  
-🌐 **Live Demo:** [Streamlit App](https://content-monetization-modeler-youtube-aws.streamlit.app/)
+## Models
 
+| Model | Configuration |
+|---|---|
+| LinearRegression | Baseline (no regularisation) |
+| Ridge | Alpha auto-tuned via RidgeCV (50 log-spaced alphas, 5-fold CV) |
+| Lasso | Alpha auto-tuned via LassoCV (50 log-spaced alphas, 5-fold CV) |
+| PassiveAggressiveRegressor | Online learning baseline, max_iter=1000 |
+| RandomForest | 150 estimators, max_depth=15 |
+| XGBoost | 150 estimators, max_depth=10, lr=0.1 |
+
+Best model selected by cross-validated R² and saved as `BestModel.joblib`.
+
+---
+
+## Revenue Prediction Logic
+
+Raw model output is clipped to a physics-based cap:
+
+```python
+predicted = clip(raw_prediction, 0, views × MAX_RPM / 1000)
+# MAX_RPM = $20.00 — maximum realistic revenue per 1000 views
+```
+
+This prevents nonsensical outputs (e.g., $280 for 1 view). Confidence interval is displayed as ±1 RMSE sourced from the stored `results.csv`.
+
+---
+
+## Input Features
+
+| Feature | Type | Description |
+|---|---|---|
+| views | numeric | Total video views |
+| likes | numeric | Total likes |
+| comments | numeric | Total comments |
+| watch_time_minutes | numeric | Aggregate watch time |
+| video_length_minutes | numeric | Video duration |
+| subscribers | numeric | Channel subscriber count |
+| category | categorical | Entertainment / Gaming / Education / Music / News |
+| device | categorical | Mobile / Tablet / TV / Desktop |
+| country | categorical | IN / US / CA / UK |
+
+Derived automatically: `engagement_rate = (likes + comments) / views`, `avg_watch_time_per_view = watch_time_minutes / views`.
+
+---
+
+## Author
+
+**Sagheer Ahmed**
+- GitHub: [@sagheerahmed08](https://github.com/sagheerahmed08)
+- Project: [Content-Monetization-Modeler-Youtube-AWS](https://github.com/sagheerahmed08/Content-Monetization-Modeler-Youtube-AWS)

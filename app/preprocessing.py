@@ -6,10 +6,12 @@ import matplotlib.pyplot as plt
 
 # Helper Functions
 def info(df):
+    """Print df.info() and return df."""
     print(f"DataFrame info:{df.info()}")
     return df
 
 def shape(df):
+    """Print df.shape and return df."""
     print(f"DataFrame shape:{df.shape}")
     return df
 
@@ -22,11 +24,11 @@ def load_data(file_path):
 def fill_na_with_group_median(df, col, group_cols):
     """Fill NaNs in a column using group median, fallback to overall median"""
     df[col] = df[col].fillna(df.groupby(group_cols)[col].transform('median'))
-    
     print(f"Remaining NaNs in {col}: {df[col].isna().sum()}")
     return df
 
 def feature_engineering(df):
+    """Add engagement_rate and avg_watch_time_per_view columns."""
     df['engagement_rate'] = (df['likes'].fillna(0) + df['comments'].fillna(0)) / df['views'].replace(0, np.nan)
     df['engagement_rate'] = df['engagement_rate'].fillna(0)
 
@@ -48,31 +50,34 @@ def save_clean_data(df, output_path):
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
     df.to_csv(output_path, index=False)
     print(f"Cleaned data saved at: {output_path}")
-    
+
 # Main Preprocessing Pipeline
 
 def preprocess_pipeline(raw_path, clean_path):
+    """Run full preprocessing: remove duplicates, impute missing values, engineer features."""
     df = load_data(raw_path)
+
+    # Remove duplicate rows (~2% of dataset per spec)
+    before = len(df)
+    df = df.drop_duplicates()
+    print(f"Removed {before - len(df)} duplicate rows ({(before - len(df)) / before * 100:.1f}%)")
 
     # Impute missing values
     df = fill_na_with_group_median(df, 'likes', ['subscribers'])
     df = fill_na_with_group_median(df, 'likes', ['comments'])
     df['likes'] = df['likes'].fillna(df['likes'].median())
-    
+
     df = fill_na_with_group_median(df, 'comments', ['subscribers'])
     df = fill_na_with_group_median(df, 'comments', ['views'])
     df['comments'] = df['comments'].fillna(df['comments'].median())
-    
+
     df = fill_na_with_group_median(df, 'watch_time_minutes', ['video_length_minutes'])
     df = fill_na_with_group_median(df, 'watch_time_minutes', ['views'])
-    df['watch_time_minutes'] = df['watch_time_minutes'].fillna(df['comments'].median())
-    # Feature engineering
-    df = feature_engineering(df)
+    df['watch_time_minutes'] = df['watch_time_minutes'].fillna(df['watch_time_minutes'].median())
 
-    # Optional: visualize target distribution
+    df = feature_engineering(df)
     visualize_target(df, 'ad_revenue_usd')
 
-    # # Save cleaned data
     # save_clean_data(df, clean_path)
 
     print(f"Preprocessing complete. Final dataset shape: {df.shape}")
@@ -92,5 +97,3 @@ if __name__ == "__main__":
     cleaned_df = load_data(clean_file)
     info(cleaned_df)
     shape(cleaned_df)
-    
-    
