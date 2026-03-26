@@ -186,8 +186,9 @@ st.plotly_chart(fig, use_container_width=True)
 st.header("📈 Feature vs Target Relationship")
 target_col = "ad_revenue_usd"
 feature = st.selectbox("Select Feature", options=[c for c in numeric_cols if c != target_col])
-fig = px.scatter(clean_df, x=feature, y=target_col, trendline="ols",
-                 title=f"{feature} vs Ad Revenue (USD)")
+fig = px.scatter(clean_df, x=feature, y=target_col,
+                 title=f"{feature} vs Ad Revenue (USD)",
+                 opacity=0.5)
 st.plotly_chart(fig, use_container_width=True)
 
 
