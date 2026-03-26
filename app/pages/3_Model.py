@@ -188,13 +188,13 @@ with tab1:
                     'Ridge': Ridge(alpha=best_alpha_ridge, random_state=42),
                     'Lasso': Lasso(alpha=best_alpha_lasso, random_state=42),
                     'PassiveAggressiveRegressor': PassiveAggressiveRegressor(max_iter=1000, random_state=42),
-                    'RandomForest': RandomForestRegressor(n_estimators=150, random_state=42, n_jobs=-1, max_depth=15)
+                    'RandomForest': RandomForestRegressor(n_estimators=100, random_state=42, n_jobs=1, max_depth=10)
                 }
 
                 if has_xgb:
                     models['XGBoost'] = XGBRegressor(
-                        n_estimators=150, random_state=42, n_jobs=1,
-                        objective='reg:squarederror', learning_rate=0.1, max_depth=10
+                        n_estimators=100, random_state=42, n_jobs=1,
+                        objective='reg:squarederror', learning_rate=0.1, max_depth=8
                     )
 
                 results = {}
@@ -216,7 +216,7 @@ with tab1:
                         "R2": r2_score(y_test, y_pred),
                     }
 
-                    scores = cross_val_score(pipe, X_train, y_train, scoring='r2', cv=5, n_jobs=-1)
+                    scores = cross_val_score(pipe, X_train, y_train, scoring='r2', cv=5, n_jobs=1)
                     results[name]["cv_r2_mean"] = np.mean(scores)
                     results[name]["cv_r2_std"] = np.std(scores)
                     st.write(f"{name}: CV R² = {results[name]['cv_r2_mean']:.4f} ± {results[name]['cv_r2_std']:.4f}")
