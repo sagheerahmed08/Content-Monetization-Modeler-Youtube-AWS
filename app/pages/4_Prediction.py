@@ -334,9 +334,10 @@ if predict_clicked and not errors and model:
             font-size:1.2em;
             font-weight:bold;">
             💰 Predicted Revenue<br>
-            {currency_sym}{pred_local:,.2f}
+            (${pred:,.2f} USD)
             <span style="font-size:0.8em;">
-                (${pred:,.2f} USD)
+            {currency_sym}{pred_local:,.2f}
+    
             </span>
         </div>
         """,
