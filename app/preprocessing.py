@@ -4,7 +4,7 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 
-# Helper Functions
+
 def info(df):
     """Print df.info() and return df."""
     print(f"DataFrame info:{df.info()}")
@@ -51,18 +51,15 @@ def save_clean_data(df, output_path):
     df.to_csv(output_path, index=False)
     print(f"Cleaned data saved at: {output_path}")
 
-# Main Preprocessing Pipeline
 
 def preprocess_pipeline(raw_path, clean_path):
     """Run full preprocessing: remove duplicates, impute missing values, engineer features."""
     df = load_data(raw_path)
 
-    # Remove duplicate rows (~2% of dataset per spec)
     before = len(df)
     df = df.drop_duplicates()
     print(f"Removed {before - len(df)} duplicate rows ({(before - len(df)) / before * 100:.1f}%)")
 
-    # Impute missing values
     df = fill_na_with_group_median(df, 'likes', ['subscribers'])
     df = fill_na_with_group_median(df, 'likes', ['comments'])
     df['likes'] = df['likes'].fillna(df['likes'].median())
@@ -83,11 +80,9 @@ def preprocess_pipeline(raw_path, clean_path):
     print(f"Preprocessing complete. Final dataset shape: {df.shape}")
     return df
 
-# ----------------------------
-# Run pipeline
-# ----------------------------
+
 if __name__ == "__main__":
-    BASE_DIR = os.path.dirname(os.path.dirname(__file__))  # Project root
+    BASE_DIR = os.path.dirname(os.path.dirname(__file__)) 
     raw_file = os.path.join(BASE_DIR, "Data", "Raw", "youtube_ad_revenue_dataset.csv")
     df = load_data(raw_file)
     info(df)
