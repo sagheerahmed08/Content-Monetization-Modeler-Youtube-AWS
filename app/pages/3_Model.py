@@ -14,8 +14,7 @@ from sklearn.preprocessing import StandardScaler, OneHotEncoder
 from sklearn.pipeline import Pipeline
 from sklearn.compose import ColumnTransformer
 from sklearn.impute import SimpleImputer
-from sklearn.linear_model import LinearRegression, Ridge, Lasso, RidgeCV, LassoCV, PassiveAggressiveRegressor
-from sklearn.ensemble import RandomForestRegressor
+from sklearn.linear_model import LinearRegression, Ridge, Lasso, RidgeCV, LassoCV
 from sklearn.metrics import r2_score, mean_absolute_error, mean_squared_error
 
 try:
@@ -129,7 +128,6 @@ with tab1:
             f"{MODEL_PREFIX}/RandomForest.joblib",
             f"{MODEL_PREFIX}/Ridge.joblib",
             f"{MODEL_PREFIX}/Lasso.joblib",
-            f"{MODEL_PREFIX}/PassiveAggressiveRegressor.joblib",
             f"{MODEL_PREFIX}/LinearRegression.joblib",
             f"{MODEL_PREFIX}/XGBoost.joblib",
             f"{MODEL_PREFIX}/BestModel.joblib"
@@ -187,7 +185,6 @@ with tab1:
                     'LinearRegression': LinearRegression(),
                     'Ridge': Ridge(alpha=best_alpha_ridge, random_state=42),
                     'Lasso': Lasso(alpha=best_alpha_lasso, random_state=42),
-                    'PassiveAggressiveRegressor': PassiveAggressiveRegressor(max_iter=1000, random_state=42),
                     'RandomForest': RandomForestRegressor(n_estimators=100, random_state=42, n_jobs=1, max_depth=10)
                 }
 
