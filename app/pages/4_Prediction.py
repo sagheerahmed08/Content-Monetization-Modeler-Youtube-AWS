@@ -152,7 +152,7 @@ def user_input_features():
 
     category = col1.selectbox(
         "Category",
-        ["Entertainment", "Gaming", "Education", "Music", "News"]
+        ["Entertainment", "Gaming", "Education", "Music", "News","Lifesytle"]
     )
 
     device = col2.selectbox(
