@@ -337,7 +337,6 @@ if predict_clicked and not errors and model:
             (${pred:,.2f} USD)
             <span style="font-size:0.8em;">
             {currency_sym}{pred_local:,.2f}
-    
             </span>
         </div>
         """,
